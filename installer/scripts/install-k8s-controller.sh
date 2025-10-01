@@ -1135,7 +1135,7 @@ pull_k8s_images() {
     
     # Дополнительная загрузка образа pause:3.8
     print_info "Загрузка образа pause:3.8 с локального реестра..."
-    if run_sudo ctr images pull registry:5000/pause:3.8; then
+    if run_sudo crictl pull registry:5000/pause:3.8; then
         print_success "Образ pause:3.8 загружен с локального реестра"
     else
         print_warning "Не удалось загрузить образ pause:3.8 с локального реестра"
