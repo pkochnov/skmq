@@ -662,7 +662,7 @@ install_toml_cli() {
     fi
     
     # Извлекаем и устанавливаем toml-cli
-    if tar -xf "$toml_tmp" -C /tmp/ && run_sudo mv /tmp/toml /usr/local/bin/; then
+    if tar -xf "$toml_tmp" -C /tmp/ && run_sudo mv /tmp/toml-${toml_version}-x86_64-linux/toml /usr/local/bin/; then
         run_sudo chmod +x /usr/local/bin/toml
         print_success "toml-cli установлен"
         rm -f "$toml_tmp"
