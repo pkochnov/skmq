@@ -13,6 +13,8 @@ discli --insecure push ${DIR}/images/kube-controller-manager-v1.31.13.tar regist
 discli --insecure push ${DIR}/images/kube-proxy-v1.31.13.tar registry:5000/kube-proxy:v1.31.13
 discli --insecure push ${DIR}/images/kube-scheduler-v1.31.13.tar registry:5000/kube-scheduler:v1.31.13
 
+discli --insecure push ${DIR}/images/pause-3.8.tar registry:5000/pause:3.8
+
 # Cilium
 discli --insecure push ${DIR}/images/cilium-v1.16.5.tar registry:5000/quay.io/cilium/cilium:v1.16.5
 discli --insecure push ${DIR}/images/cilium-operator-generic-v1.16.5.tar registry:5000/quay.io/cilium/operator-generic:v1.16.5
