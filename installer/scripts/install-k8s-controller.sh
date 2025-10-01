@@ -604,9 +604,9 @@ install_helm() {
     fi
     
     # Версия Helm из документации MONQ
-    local helm_version="v3.17.0"
     local arch="amd64"
-    local helm_url="https://get.helm.sh/helm-${helm_version}-linux-${arch}.tar.gz"
+    # local helm_url="https://get.helm.sh/helm-${HELM_VERSION}-linux-${arch}.tar.gz"
+    local helm_url="https://github.com/pkochnov/skmq/raw/refs/heads/master/packages/helm-${HELM_VERSION}-linux-${arch}.tar.gz"
     local helm_tmp="/tmp/helm-${helm_version}-linux-${arch}.tar.gz"
     
     # Скачиваем Helm
