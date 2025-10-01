@@ -1156,6 +1156,7 @@ initialize_cluster() {
     
     # Команда инициализации кластера
     local init_cmd="kubeadm init \
+        --v=2 \
         --pod-network-cidr=$POD_NETWORK_CIDR \
         --service-cidr=$SERVICE_CIDR \
         --apiserver-advertise-address=$host_ip \
