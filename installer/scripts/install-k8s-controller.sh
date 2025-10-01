@@ -1018,6 +1018,13 @@ configure_containerd() {
         print_warning "Не удалось включить SystemdCgroup в конфигурации containerd"
     fi
     
+    # Настройка пути к конфигурации реестров
+    if run_sudo sed -i '/\[plugins\."io\.containerd\.grpc\.v1\.cri"\]/a\\n  [plugins."io.containerd.grpc.v1.cri".registry]\n    config_path = "/etc/containerd/certs.d"' /tmp/containerd-config.toml; then
+        log_debug "Путь к конфигурации реестров настроен в containerd"
+    else
+        print_warning "Не удалось настроить путь к конфигурации реестров в containerd"
+    fi
+    
     # Копируем конфигурацию
     if run_sudo cp /tmp/containerd-config.toml /etc/containerd/config.toml; then
         run_sudo chmod 644 /etc/containerd/config.toml
