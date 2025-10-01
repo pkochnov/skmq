@@ -10,6 +10,7 @@ discli --insecure push ${DIR}/images/victoria-metrics-v1.108.1.tar registry:5000
 
 discli --insecure push ${DIR}/images/rabbitmq-4.0.5.tar registry:5000/rabbitmq:4.0.5-management
 
+discli --insecure push ${DIR}/images/consul-1.8.tar registry:5000/hashicorp/consul:1.8
 
 # Cilium
 discli --insecure push ${DIR}/images/cilium-v1.16.5.tar registry:5000/quay.io/cilium/cilium:v1.16.5
