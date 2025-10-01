@@ -211,8 +211,8 @@ check_system_requirements() {
     # Проверка дискового пространства
     local disk_space=$(df / | awk 'NR==2{print $4}')
     local disk_space_gb=$((disk_space / 1024 / 1024))
-    if [[ $disk_space_gb -lt 20 ]]; then
-        print_error "Недостаточно дискового пространства: ${disk_space_gb}GB (требуется минимум 20GB)"
+    if [[ $disk_space_gb -lt 10 ]]; then
+        print_error "Недостаточно дискового пространства: ${disk_space_gb}GB (требуется минимум 10GB)"
         errors=$((errors + 1))
     else
         print_info "Доступное дисковое пространство: ${disk_space_gb}GB"
