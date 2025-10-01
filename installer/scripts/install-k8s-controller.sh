@@ -713,7 +713,7 @@ install_runc() {
     print_info "Скачиваем runc: $download_url"
     print_info "Proxy: $HTTPS_PROXY"
     
-    if wget -q "$download_url" -O runc; then
+    if wget "$download_url" -O runc; then
         print_success "Runc скачан"
     else
         print_error "Ошибка при скачивании runc"
