@@ -7,3 +7,10 @@ discli --insecure push ${DIR}/images/postgres-16.6.tar registry:5000/postgres:16
 discli --insecure push ${DIR}/images/redis-7.4.2.tar registry:5000/redis:7.4.2
 
 discli --insecure push ${DIR}/images/victoria-metrics-v1.108.1.tar registry:5000/victoriametrics/victoria-metrics:v1.108.1
+
+discli --insecure push ${DIR}/images/rabbitmq-4.0.5.tar registry:5000/rabbitmq:4.0.5-management
+
+
+# Cilium
+discli --insecure push ${DIR}/images/cilium-v1.16.5.tar registry:5000/quay.io/cilium/cilium:v1.16.5
+discli --insecure push ${DIR}/images/cilium-operator-generic-v1.16.5.tar registry:5000/quay.io/cilium/operator-generic:v1.16.5
