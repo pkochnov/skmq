@@ -710,8 +710,8 @@ install_runc() {
     # Скачиваем runc
     local download_url="https://github.com/opencontainers/runc/releases/download/v${runc_version}/runc.${arch}"
     
-    log_debug "Скачиваем runc: $download_url"
-    log_debug "Proxy: $HTTPS_PROXY"
+    print_info "Скачиваем runc: $download_url"
+    print_info "Proxy: $HTTPS_PROXY"
     
     if wget -q "$download_url" -O runc; then
         print_success "Runc скачан"
