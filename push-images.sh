@@ -8,7 +8,7 @@ discli --insecure push ${DIR}/images/rabbitmq-4.0.5.tar registry:5000/rabbitmq:4
 discli --insecure push ${DIR}/images/consul-1.8.tar registry:5000/hashicorp/consul:1.8
 
 # k8s
-discli --insecure push ${DIR}/images/kube-apiserver-v1.31.13.tar registry:5000/kube-scheduler:v1.31.13
+discli --insecure push ${DIR}/images/kube-apiserver-v1.31.13.tar registry:5000/kube-apiserver:v1.31.13
 discli --insecure push ${DIR}/images/kube-controller-manager-v1.31.13.tar registry:5000/kube-controller-manager:v1.31.13
 discli --insecure push ${DIR}/images/kube-proxy-v1.31.13.tar registry:5000/kube-proxy:v1.31.13
 discli --insecure push ${DIR}/images/kube-scheduler-v1.31.13.tar registry:5000/kube-scheduler:v1.31.13
