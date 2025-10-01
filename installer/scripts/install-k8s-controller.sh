@@ -1086,6 +1086,33 @@ configure_containerd() {
     return 0
 }
 
+# Предварительная загрузка образов Kubernetes
+pull_k8s_images() {
+    print_section "Предварительная загрузка образов Kubernetes"
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        print_info "[DRY-RUN] Предварительная загрузка образов Kubernetes"
+        return 0
+    fi
+    
+    print_info "Загрузка образов Kubernetes с локального реестра registry:5000..."
+    
+    # Команда загрузки образов
+    local pull_cmd="kubeadm config images pull --image-repository registry:5000"
+    
+    print_info "Выполнение команды загрузки образов..."
+    log_info "Команда: $pull_cmd"
+    
+    if run_sudo $pull_cmd; then
+        print_success "Образы Kubernetes загружены с локального реестра"
+    else
+        print_warning "Не удалось загрузить образы с локального реестра, будет использован стандартный репозиторий"
+        log_warn "Возможно, локальный реестр недоступен или образы не загружены в него"
+    fi
+    
+    return 0
+}
+
 # Инициализация кластера
 initialize_cluster() {
     print_section "Инициализация кластера Kubernetes"
@@ -1637,6 +1664,7 @@ main() {
         "configure_containerd"
         "configure_insecure_registry"
         "install_kubernetes_components"
+        "pull_k8s_images"
         "install_helm"
         "install_discli"
         "initialize_cluster"
