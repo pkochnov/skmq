@@ -1161,6 +1161,7 @@ initialize_cluster() {
         --apiserver-advertise-address=$host_ip \
         --apiserver-bind-port=$K8S_API_PORT \
         --token-ttl=$K8S_TOKEN_TTL \
+        --image-repository=registry:5000 \
         --cri-socket=unix:///var/run/containerd/containerd.sock"
     
     print_info "Выполнение команды инициализации кластера..."
