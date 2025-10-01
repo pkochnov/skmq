@@ -434,6 +434,48 @@ load_kernel_modules() {
     return 0
 }
 
+# Установка toml-cli
+install_toml_cli() {
+    print_section "Установка toml-cli"
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        print_info "[DRY-RUN] Установка toml-cli"
+        return 0
+    fi
+    
+    # Проверяем, установлен ли уже toml-cli
+    if command -v toml >/dev/null 2>&1; then
+        print_info "toml-cli уже установлен"
+        return 0
+    fi
+    
+    # Версия toml-cli
+    local toml_version="0.2.3"
+    local toml_url="https://github.com/gnprice/toml-cli/releases/download/v${toml_version}/toml-${toml_version}-x86_64-linux.tar.gz"
+    local toml_tmp="/tmp/toml-${toml_version}-x86_64-linux.tar.gz"
+    
+    # Скачиваем toml-cli
+    if wget -q "$toml_url" -O "$toml_tmp"; then
+        print_success "toml-cli скачан"
+    else
+        print_error "Ошибка при скачивании toml-cli"
+        return 1
+    fi
+    
+    # Извлекаем и устанавливаем toml-cli
+    if tar -xf "$toml_tmp" -C /tmp/ && run_sudo mv /tmp/toml /usr/local/bin/; then
+        run_sudo chmod +x /usr/local/bin/toml
+        print_success "toml-cli установлен"
+        rm -f "$toml_tmp"
+    else
+        print_error "Ошибка при установке toml-cli"
+        rm -f "$toml_tmp"
+        return 1
+    fi
+    
+    return 0
+}
+
 # Установка системных пакетов
 install_system_packages() {
     print_section "Установка системных пакетов"
@@ -865,43 +907,24 @@ configure_containerd() {
         print_warning "Не удалось включить SystemdCgroup в конфигурации containerd"
     fi
     
-    # Настройка пути к конфигурации реестров
-    # Проверяем, существует ли уже секция registry
-    if run_sudo grep -q '\[plugins\."io\.containerd\.grpc\.v1\.cri"\.registry\]' /tmp/containerd-config.toml; then
-        # Секция существует, проверяем config_path именно в этой секции
-        local registry_section_start=$(run_sudo grep -n '\[plugins\."io\.containerd\.grpc\.v1\.cri"\.registry\]' /tmp/containerd-config.toml | cut -d: -f1)
-        local next_section_line=$(run_sudo awk -v start="$registry_section_start" 'NR > start && /^\[/ {print NR; exit}' /tmp/containerd-config.toml)
-        
-        if [[ -n "$next_section_line" ]]; then
-            # Есть следующая секция, ищем config_path между текущей и следующей секцией
-            local config_path_in_registry=$(run_sudo sed -n "${registry_section_start},${next_section_line}p" /tmp/containerd-config.toml | grep -q 'config_path.*=' && echo "yes" || echo "no")
+    # Настройка пути к конфигурации реестров с помощью toml-cli
+    print_info "Настройка пути к конфигурации реестров с помощью toml-cli..."
+    
+    # Устанавливаем config_path в секции registry и сохраняем результат в файл
+    local temp_output="/tmp/containerd-config-updated.toml"
+    if run_sudo toml set /tmp/containerd-config.toml 'plugins."io.containerd.grpc.v1.cri".registry.config_path' '/etc/containerd/certs.d' > "$temp_output"; then
+        if run_sudo mv "$temp_output" /tmp/containerd-config.toml; then
+            log_debug "Путь к конфигурации реестров установлен: /etc/containerd/certs.d"
+            print_success "Конфигурация реестров настроена"
         else
-            # Нет следующей секции, ищем config_path до конца файла
-            local config_path_in_registry=$(run_sudo sed -n "${registry_section_start},\$p" /tmp/containerd-config.toml | grep -q 'config_path.*=' && echo "yes" || echo "no")
-        fi
-        
-        if [[ "$config_path_in_registry" == "yes" ]]; then
-            # config_path уже есть в секции registry, заменяем его
-            if run_sudo sed -i "/\[plugins\."io\.containerd\.grpc\.v1\.cri"\.registry\]/,/^\[/ s|config_path.*=.*|config_path = \"/etc/containerd/certs.d\"|" /tmp/containerd-config.toml; then
-                log_debug "Путь к конфигурации реестров обновлен в секции registry"
-            else
-                print_warning "Не удалось обновить путь к конфигурации реестров в секции registry"
-            fi
-        else
-            # config_path нет в секции registry, добавляем его
-            if run_sudo sed -i '/\[plugins\."io\.containerd\.grpc\.v1\.cri"\.registry\]/a\  config_path = "/etc/containerd/certs.d"' /tmp/containerd-config.toml; then
-                log_debug "Путь к конфигурации реестров добавлен в секцию registry"
-            else
-                print_warning "Не удалось добавить путь к конфигурации реестров в секцию registry"
-            fi
+            print_error "Ошибка при сохранении обновленной конфигурации"
+            rm -f "$temp_output"
+            return 1
         fi
     else
-        # Секции registry нет, добавляем её с config_path
-        if run_sudo sed -i '/\[plugins\."io\.containerd\.grpc\.v1\.cri"\]/a\\n  [plugins."io.containerd.grpc.v1.cri".registry]\n    config_path = "/etc/containerd/certs.d"' /tmp/containerd-config.toml; then
-            log_debug "Секция registry с путем к конфигурации реестров добавлена в containerd"
-        else
-            print_warning "Не удалось добавить секцию registry в containerd"
-        fi
+        print_error "Не удалось настроить путь к конфигурации реестров через toml-cli"
+        rm -f "$temp_output"
+        return 1
     fi
     
     # Копируем конфигурацию
@@ -1137,6 +1160,7 @@ main() {
         "add_kubernetes_repository"
         "install_runc"
         "install_containerd"
+        "install_toml_cli"
         "configure_containerd"
         "configure_insecure_registry"
         "install_kubernetes_components"
