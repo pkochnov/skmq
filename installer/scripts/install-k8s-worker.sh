@@ -912,7 +912,7 @@ configure_containerd() {
     
     # Устанавливаем config_path в секции registry и сохраняем результат в файл
     local temp_output="/tmp/containerd-config-updated.toml"
-    if run_sudo toml set /tmp/containerd-config.toml 'plugins."io.containerd.grpc.v1.cri".registry.config_path' '/etc/containerd/certs.d' > "$temp_output"; then
+    if run_sudo /usr/local/bin/toml set /tmp/containerd-config.toml 'plugins."io.containerd.grpc.v1.cri".registry.config_path' '/etc/containerd/certs.d' > "$temp_output"; then
         if run_sudo mv "$temp_output" /tmp/containerd-config.toml; then
             log_debug "Путь к конфигурации реестров установлен: /etc/containerd/certs.d"
             print_success "Конфигурация реестров настроена"
