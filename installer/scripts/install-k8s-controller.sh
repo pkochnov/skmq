@@ -1019,10 +1019,42 @@ configure_containerd() {
     fi
     
     # Настройка пути к конфигурации реестров
-    if run_sudo sed -i '/\[plugins\."io\.containerd\.grpc\.v1\.cri"\]/a\\n  [plugins."io.containerd.grpc.v1.cri".registry]\n    config_path = "/etc/containerd/certs.d"' /tmp/containerd-config.toml; then
-        log_debug "Путь к конфигурации реестров настроен в containerd"
+    # Проверяем, существует ли уже секция registry
+    if run_sudo grep -q '\[plugins\."io\.containerd\.grpc\.v1\.cri"\.registry\]' /tmp/containerd-config.toml; then
+        # Секция существует, проверяем config_path именно в этой секции
+        local registry_section_start=$(run_sudo grep -n '\[plugins\."io\.containerd\.grpc\.v1\.cri"\.registry\]' /tmp/containerd-config.toml | cut -d: -f1)
+        local next_section_line=$(run_sudo awk -v start="$registry_section_start" 'NR > start && /^\[/ {print NR; exit}' /tmp/containerd-config.toml)
+        
+        if [[ -n "$next_section_line" ]]; then
+            # Есть следующая секция, ищем config_path между текущей и следующей секцией
+            local config_path_in_registry=$(run_sudo sed -n "${registry_section_start},${next_section_line}p" /tmp/containerd-config.toml | grep -q 'config_path.*=' && echo "yes" || echo "no")
+        else
+            # Нет следующей секции, ищем config_path до конца файла
+            local config_path_in_registry=$(run_sudo sed -n "${registry_section_start},\$p" /tmp/containerd-config.toml | grep -q 'config_path.*=' && echo "yes" || echo "no")
+        fi
+        
+        if [[ "$config_path_in_registry" == "yes" ]]; then
+            # config_path уже есть в секции registry, заменяем его
+            if run_sudo sed -i "/\[plugins\."io\.containerd\.grpc\.v1\.cri"\.registry\]/,/^\[/ s|config_path.*=.*|config_path = \"/etc/containerd/certs.d\"|" /tmp/containerd-config.toml; then
+                log_debug "Путь к конфигурации реестров обновлен в секции registry"
+            else
+                print_warning "Не удалось обновить путь к конфигурации реестров в секции registry"
+            fi
+        else
+            # config_path нет в секции registry, добавляем его
+            if run_sudo sed -i '/\[plugins\."io\.containerd\.grpc\.v1\.cri"\.registry\]/a\  config_path = "/etc/containerd/certs.d"' /tmp/containerd-config.toml; then
+                log_debug "Путь к конфигурации реестров добавлен в секцию registry"
+            else
+                print_warning "Не удалось добавить путь к конфигурации реестров в секцию registry"
+            fi
+        fi
     else
-        print_warning "Не удалось настроить путь к конфигурации реестров в containerd"
+        # Секции registry нет, добавляем её с config_path
+        if run_sudo sed -i '/\[plugins\."io\.containerd\.grpc\.v1\.cri"\]/a\\n  [plugins."io.containerd.grpc.v1.cri".registry]\n    config_path = "/etc/containerd/certs.d"' /tmp/containerd-config.toml; then
+            log_debug "Секция registry с путем к конфигурации реестров добавлена в containerd"
+        else
+            print_warning "Не удалось добавить секцию registry в containerd"
+        fi
     fi
     
     # Копируем конфигурацию
