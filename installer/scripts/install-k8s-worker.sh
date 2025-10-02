@@ -24,6 +24,12 @@ DISCOVERY_TOKEN_CA_CERT_HASH=""
 DRY_RUN=false
 FORCE=false
 PAUSE_AFTER_STEP=false
+ONLINE=false
+
+# Версии компонентов из конфигурации
+HELM_VERSION="${HELM_VERSION:-v3.17.3}"
+INGRESS_NGINX_VERSION="${INGRESS_NGINX_VERSION:-4.12.1}"
+REGISTRY_ADDRESS="${REGISTRY_ADDRESS:-registry:5000}"
 
 # =============================================================================
 # Функции скрипта
@@ -52,6 +58,7 @@ show_help() {
     --dry-run                       Режим симуляции (без выполнения команд)
     --force                         Принудительное выполнение (без подтверждений)
     --pause                         Пауза после каждого этапа установки
+    --online                        Онлайн режим (использование интернет-ресурсов)
     --help                          Показать эту справку
 
 Примеры:
@@ -95,6 +102,10 @@ parse_arguments() {
                 ;;
             --pause)
                 PAUSE_AFTER_STEP=true
+                shift
+                ;;
+            --online)
+                ONLINE=true
                 shift
                 ;;
             --help)
@@ -975,10 +986,9 @@ pull_k8s_images() {
     
     if run_sudo $pull_cmd; then
         print_success "Образы Kubernetes загружены с локального реестра"
-        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-apiserver:${K8S_VERSION}" "registry.k8s.io/kube-apiserver:${K8S_VERSION}"
-        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-controller-manager:${K8S_VERSION}" "registry.k8s.io/kube-controller-manager:${K8S_VERSION}"
-        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-scheduler:${K8S_VERSION}" "registry.k8s.io/kube-scheduler:${K8S_VERSION}"
-        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-proxy:${K8S_VERSION}" "registry.k8s.io/kube-proxy:${K8S_VERSION}"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-apiserver:v${K8S_VERSION}" "registry.k8s.io/kube-apiserver:v${K8S_VERSION}"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-controller-manager:v${K8S_VERSION}" "registry.k8s.io/kube-controller-manager:v${K8S_VERSION}"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-scheduler:v${K8S_VERSION}" "registry.k8s.io/kube-scheduler:v${K8S_VERSION}"
         run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/etcd:3.5.15-0" "registry.k8s.io/etcd:3.5.15-0"
         run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/pause:3.10" "registry.k8s.io/pause:3.10"
    else
@@ -1136,6 +1146,141 @@ verify_cluster_join() {
     fi
 }
 
+# Установка Helm
+install_helm() {
+    print_section "Установка Helm"
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        print_info "[DRY-RUN] Установка Helm"
+        return 0
+    fi
+    
+    # Проверяем, установлен ли уже Helm
+    if command -v /usr/local/bin/helm >/dev/null 2>&1; then
+        print_info "Helm уже установлен"
+        return 0
+    fi
+    
+    # Определяем URL для скачивания в зависимости от режима
+    local arch="amd64"
+    if [[ "$ONLINE" == "true" ]]; then
+        helm_url="https://get.helm.sh/helm-${HELM_VERSION}-linux-${arch}.tar.gz"
+    else
+        helm_url="https://github.com/pkochnov/skmq/raw/refs/heads/master/packages/helm-${HELM_VERSION}-linux-${arch}.tar.gz"
+    fi
+    local helm_tmp="/tmp/helm-${HELM_VERSION}-linux-${arch}.tar.gz"
+    
+    # Скачиваем Helm
+    if wget -q "$helm_url" -O "$helm_tmp"; then
+        print_success "Helm скачан"
+    else
+        print_error "Ошибка при скачивании Helm"
+        return 1
+    fi
+    
+    # Извлекаем и устанавливаем Helm
+    if tar -xf "$helm_tmp" -C /tmp/ && run_sudo mv /tmp/linux-${arch}/helm /usr/local/bin/; then
+        run_sudo chmod +x /usr/local/bin/helm
+        print_success "Helm установлен"
+        rm -f "$helm_tmp"
+        rm -rf "/tmp/linux-${arch}"
+    else
+        print_error "Ошибка при установке Helm"
+        rm -f "$helm_tmp"
+        rm -rf "/tmp/linux-${arch}"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Установка ingress-nginx
+install_ingress_nginx() {
+    print_section "Установка ingress-nginx"
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        print_info "[DRY-RUN] Установка ingress-nginx"
+        return 0
+    fi
+    
+    # Проверяем, установлен ли уже ingress-nginx
+    if run_sudo kubectl get namespace ingress-nginx &>/dev/null; then
+        print_info "ingress-nginx уже установлен"
+        return 0
+    fi
+    
+    print_info "Установка ingress-nginx версии $INGRESS_NGINX_VERSION..."
+    
+    if [[ "$ONLINE" == "true" ]]; then
+        # Добавление репозитория ingress-nginx
+        if run_sudo helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx; then
+            print_success "Репозиторий ingress-nginx добавлен"
+        else
+            print_error "Ошибка при добавлении репозитория ingress-nginx"
+            return 1
+        fi
+        
+        # Обновление репозиториев
+        if run_sudo helm repo update; then
+            print_success "Репозитории обновлены"
+        else
+            print_error "Ошибка при обновлении репозиториев"
+            return 1
+        fi
+
+        ingress_nginx_chart="ingress-nginx/ingress-nginx"
+    else
+        # Offline установка ingress-nginx через Helm
+        print_info "Offline установка ingress-nginx через Helm..."
+        local chart_url="https://github.com/pkochnov/skmq/raw/refs/heads/master/charts/ingress-nginx-${INGRESS_NGINX_VERSION}.tgz"
+        ingress_nginx_chart="~/helm/ingress-nginx/ingress-nginx-${INGRESS_NGINX_VERSION}.tgz"
+
+        # Проверяем, скачан ли уже chart
+        if [[ -f "$ingress_nginx_chart" ]]; then
+            print_info "ingress-nginx chart уже скачан: $ingress_nginx_chart"
+        else
+            mkdir -p $(dirname $ingress_nginx_chart)
+            print_info "Скачиваем ingress-nginx chart: $chart_url в $ingress_nginx_chart"
+            if wget -q "$chart_url" -O "$ingress_nginx_chart"; then
+                print_success "ingress-nginx chart скачан"
+            else
+                print_error "Ошибка при скачивании ingress-nginx chart"
+                return 1
+            fi
+        fi
+    fi
+    
+    # Установка ingress-nginx через Helm
+    if run_sudo /usr/local/bin/helm upgrade --install ingress-nginx $ingress_nginx_chart \
+        --namespace ingress-nginx --create-namespace \
+        --set controller.kind=DaemonSet \
+        --set controller.hostPort.enabled=true \
+        --set controller.nodeSelector.ingress="" \
+        --set controller.service.enabled=true \
+        --set controller.config.body-size=50m \
+        --set controller.config.hsts=false \
+        --set controller.config.large-client-header-buffers="4 32k" \
+        --set controller.config.proxy-body-size=50m \
+        --set controller.config.proxy-buffer-size=128k \
+        --set controller.config.proxy-buffers="4 256k" \
+        --set controller.config.proxy-busy-buffers-size=256k \
+        --set controller.config.proxy-connect-timeout="15" \
+        --set controller.config.proxy-read-timeout="300" \
+        --set controller.config.proxy-send-timeout="300" \
+        --set controller.config.server-name-hash-bucket-size="256" \
+        --set controller.config.worker-shutdown-timeout=10s \
+        --set controller.image.registry=$REGISTRY_ADDRESS \
+        --set controller.image.digest=null \
+        --set controller.admissionWebhooks.patch.image.registry=$REGISTRY_ADDRESS \
+        --set controller.admissionWebhooks.patch.image.digest=null; then
+        print_success "ingress-nginx успешно установлен"
+        return 0
+    else
+        print_error "Ошибка при установке ingress-nginx"
+        return 1
+    fi
+}
+
 # =============================================================================
 # Основная функция
 # =============================================================================
@@ -1186,6 +1331,8 @@ main() {
         "join_cluster"
         "configure_firewall"
         "verify_cluster_join"
+        "install_helm"
+        "install_ingress_nginx"
     )
     
     local total_steps=${#steps[@]}
