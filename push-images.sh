@@ -9,11 +9,16 @@ discli --insecure push ${DIR}/images/consul-1.8.tar registry:5000/hashicorp/cons
 
 # k8s
 discli --insecure push ${DIR}/images/kube-apiserver-v1.31.13.tar registry:5000/kube-apiserver:v1.31.13
+discli --insecure push ${DIR}/images/kube-apiserver-v1.31.13.tar registry:5000/registry.k8s.io/kube-apiserver:v1.31.13
 discli --insecure push ${DIR}/images/kube-controller-manager-v1.31.13.tar registry:5000/kube-controller-manager:v1.31.13
+discli --insecure push ${DIR}/images/kube-controller-manager-v1.31.13.tar registry:5000/registry.k8s.io/kube-controller-manager:v1.31.13
 discli --insecure push ${DIR}/images/kube-proxy-v1.31.13.tar registry:5000/kube-proxy:v1.31.13
+discli --insecure push ${DIR}/images/kube-proxy-v1.31.13.tar registry:5000/registry.k8s.io/kube-proxy:v1.31.13
 discli --insecure push ${DIR}/images/kube-scheduler-v1.31.13.tar registry:5000/kube-scheduler:v1.31.13
+discli --insecure push ${DIR}/images/kube-scheduler-v1.31.13.tar registry:5000/registry.k8s.io/kube-scheduler:v1.31.13
 
 discli --insecure push ${DIR}/images/pause-3.8.tar registry:5000/pause:3.8
+discli --insecure push ${DIR}/images/pause-3.8.tar registry:5000/registry.k8s.io/pause:3.8
 
 # Cilium
 discli --insecure push ${DIR}/images/cilium-v1.16.5.tar registry:5000/cilium/cilium/cilium:v1.16.5
