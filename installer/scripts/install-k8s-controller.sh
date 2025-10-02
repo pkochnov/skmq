@@ -1349,7 +1349,7 @@ install_cilium() {
     fi
     
     # Установка Cilium
-    if run_sudo /usr/local/bin/helm upgrade --install cilium cilium/cilium \
+    if run_sudo /usr/local/bin/helm upgrade --install cilium $cilium_chart \
         --version "$CILIUM_VERSION" \
         --namespace kube-system \
         --set kubeProxyReplacement=true \

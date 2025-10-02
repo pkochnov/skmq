@@ -321,7 +321,85 @@ configure_dns() {
         print_info "Все записи уже существуют в /etc/hosts"
     fi
     
+    # Обновление шаблона cloud-init если он существует
+    configure_cloud_init_template
+    
     return 0
+}
+
+# Настройка шаблона cloud-init для hosts
+configure_cloud_init_template() {
+    local template_file="/etc/cloud/templates/hosts.redos.tmpl"
+    
+    # Проверяем существование шаблона
+    if [[ ! -f "$template_file" ]]; then
+        print_info "Шаблон cloud-init не найден: $template_file"
+        return 0
+    fi
+    
+    print_section "Обновление шаблона cloud-init: $template_file"
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        print_info "[DRY-RUN] Обновление шаблона cloud-init"
+        return 0
+    fi
+    
+    # Создание резервной копии шаблона
+    if run_sudo cp "$template_file" "$template_file.backup.$(date +%Y%m%d_%H%M%S)"; then
+        print_success "Создана резервная копия шаблона cloud-init"
+    else
+        print_warning "Не удалось создать резервную копию шаблона cloud-init"
+    fi
+    
+    # Генерируем записи для добавления в шаблон
+    local template_entries=()
+    
+    # Добавляем запись для текущего хоста
+    template_entries+=("$IP_ADDRESS $HOSTNAME")
+    
+    # Добавляем записи для других хостов
+    for entry in "${hosts_entries[@]}"; do
+        # Пропускаем запись для текущего хоста (уже добавлена)
+        if [[ "$entry" == "$IP_ADDRESS $HOSTNAME" ]]; then
+            continue
+        fi
+        template_entries+=("$entry")
+    done
+    
+    # Создаем временный файл с новыми записями
+    local temp_template="/tmp/hosts_template_$$"
+    
+    # Копируем существующий шаблон
+    run_sudo cp "$template_file" "$temp_template"
+    
+    # Добавляем записи в конец шаблона, если их там нет
+    local added_count=0
+    for entry in "${template_entries[@]}"; do
+        if ! run_sudo grep -q "$entry" "$temp_template"; then
+            # Создаем временный файл с записью
+            local temp_entry="/tmp/template_entry_$$_$added_count"
+            echo "$entry" > "$temp_entry"
+            # Добавляем запись в шаблон
+            run_sudo sh -c "cat $temp_entry >> $temp_template"
+            rm -f "$temp_entry"
+            added_count=$((added_count + 1))
+            print_info "Добавлена запись в шаблон: $entry"
+        fi
+    done
+    
+    # Заменяем оригинальный файл
+    if run_sudo mv "$temp_template" "$template_file"; then
+        if [[ $added_count -gt 0 ]]; then
+            print_success "Шаблон cloud-init обновлен, добавлено $added_count записей"
+        else
+            print_info "Все записи уже существуют в шаблоне cloud-init"
+        fi
+        return 0
+    else
+        print_error "Ошибка при обновлении шаблона cloud-init"
+        rm -f "$temp_template"
+        return 1
+    fi
 }
 
 # Отключение файрвола
@@ -501,6 +579,11 @@ verify_setup() {
         "systemctl is-active chronyd"
         "run_sudo grep -q $HOSTNAME /etc/hosts"
     )
+    
+    # Проверяем шаблон cloud-init если он существует
+    if [[ -f "/etc/cloud/templates/hosts.redos.tmpl" ]]; then
+        checks+=("run_sudo grep -q $HOSTNAME /etc/cloud/templates/hosts.redos.tmpl")
+    fi
     
     local failed_checks=0
     
