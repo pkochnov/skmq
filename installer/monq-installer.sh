@@ -308,55 +308,75 @@ get_join_token_from_controller() {
     fi
 }
 
-# Функция копирования kubeconfig файла с master узла на worker
-copy_kubeconfig_to_worker() {
+# Функция получения kubeconfig файла с master узла на локальную машину
+get_kubeconfig_from_master() {
     local master_ip="$1"
-    local worker_ip="$2"
     local kubeconfig_source="/etc/kubernetes/admin.conf"
-    local kubeconfig_dest="/tmp/kubeconfig"
+    local local_kubeconfig="/tmp/kubeconfig-master-$(date +%s)"
     
-    print_info "Копирование kubeconfig файла с master узла $master_ip на worker $worker_ip..."
+    print_info "Получение kubeconfig файла с master узла $master_ip..."
     
-    # Копируем kubeconfig файл с master на worker
-    if command -v ssh >/dev/null 2>&1; then
-        # Создаем временный файл на локальной машине
-        local temp_kubeconfig="/tmp/kubeconfig-$(date +%s)"
-        
-        # Получаем содержимое kubeconfig файла с master узла через run_sudo
-        print_info "Получение содержимого kubeconfig файла с master узла..."
-        if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$MONQ_USER@$master_ip" "sudo cat $kubeconfig_source" > "$temp_kubeconfig" 2>/dev/null; then
-            if [[ -s "$temp_kubeconfig" ]]; then
-                print_success "Kubeconfig файл получен с master узла"
-                
-                # Копируем kubeconfig с локальной машины на worker узел
-                if scp -o StrictHostKeyChecking=no "$temp_kubeconfig" "$MONQ_USER@$worker_ip:$kubeconfig_dest"; then
-                    print_success "Kubeconfig файл успешно скопирован на worker узел: $kubeconfig_dest"
-                    
-                    # Очищаем временный файл на локальной машине
-                    rm -f "$temp_kubeconfig"
-                    return 0
-                else
-                    print_error "Не удалось скопировать kubeconfig файл на worker узел"
-                    # Очищаем временный файл на локальной машине
-                    rm -f "$temp_kubeconfig"
-                    return 1
-                fi
-            else
-                print_error "Получен пустой kubeconfig файл с master узла"
-                rm -f "$temp_kubeconfig"
-                return 1
-            fi
+    # Получаем содержимое kubeconfig файла с master узла через sudo
+    if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$MONQ_USER@$master_ip" "sudo cat $kubeconfig_source" > "$local_kubeconfig" 2>/dev/null; then
+        if [[ -s "$local_kubeconfig" ]]; then
+            print_success "Kubeconfig файл получен с master узла: $local_kubeconfig"
+            echo "$local_kubeconfig"
+            return 0
         else
-            print_error "Не удалось получить kubeconfig файл с master узла"
-            print_info "Убедитесь, что:"
-            print_info "  1. Пользователь $MONQ_USER имеет sudo права на master узле"
-            print_info "  2. Файл $kubeconfig_source существует на master узле"
-            print_info "  3. SSH доступен к master узлу"
-            rm -f "$temp_kubeconfig"
+            print_error "Получен пустой kubeconfig файл с master узла"
+            rm -f "$local_kubeconfig"
             return 1
         fi
     else
-        print_error "SSH недоступен, невозможно скопировать kubeconfig файл"
+        print_error "Не удалось получить kubeconfig файл с master узла"
+        print_info "Убедитесь, что:"
+        print_info "  1. Пользователь $MONQ_USER имеет sudo права на master узле"
+        print_info "  2. Файл $kubeconfig_source существует на master узле"
+        print_info "  3. SSH доступен к master узлу"
+        rm -f "$local_kubeconfig"
+        return 1
+    fi
+}
+
+# Функция копирования kubeconfig файла на worker узел
+copy_kubeconfig_to_worker_local() {
+    local local_kubeconfig="$1"
+    local worker_ip="$2"
+    local kubeconfig_dest="/tmp/kubeconfig"
+    
+    print_info "Копирование kubeconfig файла на worker узел $worker_ip..."
+    
+    # Копируем kubeconfig с локальной машины на worker узел
+    if scp -o StrictHostKeyChecking=no "$local_kubeconfig" "$MONQ_USER@$worker_ip:$kubeconfig_dest"; then
+        print_success "Kubeconfig файл успешно скопирован на worker узел: $kubeconfig_dest"
+        return 0
+    else
+        print_error "Не удалось скопировать kubeconfig файл на worker узел"
+        return 1
+    fi
+}
+
+# Функция копирования kubeconfig файла с master узла на worker (объединенная)
+copy_kubeconfig_to_worker() {
+    local master_ip="$1"
+    local worker_ip="$2"
+    
+    print_info "Копирование kubeconfig файла с master узла $master_ip на worker $worker_ip..."
+    
+    # Шаг 1: Получаем kubeconfig с master узла на локальную машину
+    local local_kubeconfig
+    if local_kubeconfig=$(get_kubeconfig_from_master "$master_ip"); then
+        # Шаг 2: Копируем kubeconfig с локальной машины на worker узел
+        if copy_kubeconfig_to_worker_local "$local_kubeconfig" "$worker_ip"; then
+            # Очищаем временный файл
+            rm -f "$local_kubeconfig"
+            return 0
+        else
+            # Очищаем временный файл при ошибке
+            rm -f "$local_kubeconfig"
+            return 1
+        fi
+    else
         return 1
     fi
 }
