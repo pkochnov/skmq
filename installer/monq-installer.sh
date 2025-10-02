@@ -127,6 +127,7 @@ show_help() {
     $0 --host k01 --action setup-os
     $0 --host k01 --action install-k8s-controller --k8s-version 1.31.4
     $0 --host k02 --action install-k8s-worker --master-ip 10.72.66.51 --join-token abc123.def456 --discovery-token-ca-cert-hash sha256:...
+    $0 --host k02 --action uninstall-k8s-worker --cleanup-storage --cleanup-config
     $0 --host k02 --action init-k8s-worker-storage --device /dev/sdb
     $0 --dry-run
     $0 --log-level DEBUG
@@ -431,16 +432,20 @@ show_action_menu() {
             ACTION_MENU_ITEMS+=("$action_index|install-monq-controller")
             action_index=$((action_index + 1))
         else
-            print_menu_item "  $action_index. Установка Kubernetes Worker"
-            ACTION_MENU_ITEMS+=("$action_index|install-k8s-worker")
-            action_index=$((action_index + 1))
-            
             print_menu_item "  $action_index. Инициализация хранилища Kubernetes Worker"
             ACTION_MENU_ITEMS+=("$action_index|init-k8s-worker-storage")
             action_index=$((action_index + 1))
             
+            print_menu_item "  $action_index. Установка Kubernetes Worker"
+            ACTION_MENU_ITEMS+=("$action_index|install-k8s-worker")
+            action_index=$((action_index + 1))
+            
             print_menu_item "  $action_index. Проверка состояния Kubernetes Worker"
             ACTION_MENU_ITEMS+=("$action_index|check-k8s-worker")
+            action_index=$((action_index + 1))
+            
+            print_menu_item "  $action_index. Удаление Kubernetes Worker"
+            ACTION_MENU_ITEMS+=("$action_index|uninstall-k8s-worker")
             action_index=$((action_index + 1))
         fi
     else
@@ -665,6 +670,10 @@ execute_action() {
         check-k8s-worker)
             script_path="$PROJECT_DIR/scripts/check-k8s-worker.sh"
             script_args=("--format" "text")
+            ;;
+        uninstall-k8s-worker)
+            script_path="$PROJECT_DIR/scripts/uninstall-k8s-worker.sh"
+            script_args=()
             ;;
         init-k8s-worker-storage)
             script_path="$PROJECT_DIR/scripts/init-k8s-worker-storage.sh"
