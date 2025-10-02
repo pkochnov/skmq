@@ -308,6 +308,59 @@ get_join_token_from_controller() {
     fi
 }
 
+# Функция копирования kubeconfig файла с master узла на worker
+copy_kubeconfig_to_worker() {
+    local master_ip="$1"
+    local worker_ip="$2"
+    local kubeconfig_source="/etc/kubernetes/admin.conf"
+    local kubeconfig_dest="/tmp/kubeconfig"
+    
+    print_info "Копирование kubeconfig файла с master узла $master_ip на worker $worker_ip..."
+    
+    # Копируем kubeconfig файл с master на worker
+    if command -v ssh >/dev/null 2>&1; then
+        # Создаем временный файл на локальной машине
+        local temp_kubeconfig="/tmp/kubeconfig-$(date +%s)"
+        
+        # Получаем содержимое kubeconfig файла с master узла через run_sudo
+        print_info "Получение содержимого kubeconfig файла с master узла..."
+        if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$MONQ_USER@$master_ip" "sudo cat $kubeconfig_source" > "$temp_kubeconfig" 2>/dev/null; then
+            if [[ -s "$temp_kubeconfig" ]]; then
+                print_success "Kubeconfig файл получен с master узла"
+                
+                # Копируем kubeconfig с локальной машины на worker узел
+                if scp -o StrictHostKeyChecking=no "$temp_kubeconfig" "$MONQ_USER@$worker_ip:$kubeconfig_dest"; then
+                    print_success "Kubeconfig файл успешно скопирован на worker узел: $kubeconfig_dest"
+                    
+                    # Очищаем временный файл на локальной машине
+                    rm -f "$temp_kubeconfig"
+                    return 0
+                else
+                    print_error "Не удалось скопировать kubeconfig файл на worker узел"
+                    # Очищаем временный файл на локальной машине
+                    rm -f "$temp_kubeconfig"
+                    return 1
+                fi
+            else
+                print_error "Получен пустой kubeconfig файл с master узла"
+                rm -f "$temp_kubeconfig"
+                return 1
+            fi
+        else
+            print_error "Не удалось получить kubeconfig файл с master узла"
+            print_info "Убедитесь, что:"
+            print_info "  1. Пользователь $MONQ_USER имеет sudo права на master узле"
+            print_info "  2. Файл $kubeconfig_source существует на master узле"
+            print_info "  3. SSH доступен к master узлу"
+            rm -f "$temp_kubeconfig"
+            return 1
+        fi
+    else
+        print_error "SSH недоступен, невозможно скопировать kubeconfig файл"
+        return 1
+    fi
+}
+
 # Извлечение параметров из команды присоединения
 extract_join_parameters() {
     local join_command="$1"
@@ -623,6 +676,14 @@ execute_action() {
             if [[ -n "$MASTER_IP" && -n "$JOIN_TOKEN" && -n "$DISCOVERY_TOKEN_CA_CERT_HASH" ]]; then
                 script_args=("--master-ip" "$MASTER_IP" "--join-token" "$JOIN_TOKEN" "--discovery-token-ca-cert-hash" "$DISCOVERY_TOKEN_CA_CERT_HASH" "--pause")
                 print_info "Используются переданные параметры для Kubernetes Worker"
+                
+                # Копирование kubeconfig файла с master узла на worker
+                if [[ "$hostname" != "$(hostname)" ]]; then
+                    print_info "Копирование kubeconfig файла с master узла $MASTER_IP на worker $hostname..."
+                    if ! copy_kubeconfig_to_worker "$MASTER_IP" "$ip"; then
+                        print_warning "Не удалось скопировать kubeconfig файл, будет использован поиск по стандартным путям"
+                    fi
+                fi
             else
                 # Пытаемся автоматически получить токен с контроллерного узла
                 local controller_ip="10.72.66.51"  # IP контроллерного узла k01

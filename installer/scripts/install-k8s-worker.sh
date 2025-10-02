@@ -31,6 +31,9 @@ HELM_VERSION="${HELM_VERSION:-v3.17.3}"
 INGRESS_NGINX_VERSION="${INGRESS_NGINX_VERSION:-4.12.1}"
 REGISTRY_ADDRESS="${REGISTRY_ADDRESS:-registry:5000}"
 
+# Путь к kubeconfig файлу (может быть передан извне)
+KUBECONFIG_FILE="${KUBECONFIG_FILE:-}"
+
 # =============================================================================
 # Функции скрипта
 # =============================================================================
@@ -513,6 +516,7 @@ install_system_packages() {
         "gzip"
         "openssl"  # для создания сертификатов
         "iproute-tc"
+        "openssh-clients"  # для получения kubeconfig с master узла
     )
     
     # Установка основных пакетов
@@ -1068,23 +1072,44 @@ configure_kubectl() {
         fi
     done
     
-    # Создание конфигурации kubectl с анонимным доступом
-    local kube_config_content="apiVersion: v1
-kind: Config
-clusters:
-- cluster:
-    server: https://$MASTER_IP:$MASTER_PORT
-    insecure-skip-tls-verify: true
-  name: kubernetes
-contexts:
-- context:
-    cluster: kubernetes
-    user: anonymous
-  name: default
-current-context: default
-users:
-- name: anonymous
-  user: {}"
+    # Поиск kubeconfig файла на worker узле
+    print_info "Поиск kubeconfig файла на worker узле..."
+    local kube_config_content=""
+    local kubeconfig_sources=()
+    
+    # Если указан конкретный путь к kubeconfig файлу
+    if [[ -n "$KUBECONFIG_FILE" ]]; then
+        kubeconfig_sources=("$KUBECONFIG_FILE")
+        print_info "Используется указанный путь к kubeconfig: $KUBECONFIG_FILE"
+    else
+        # Стандартные пути поиска
+        kubeconfig_sources=(
+            "/tmp/kubeconfig"
+            "/root/kubeconfig"
+            "/etc/kubernetes/admin.conf"
+            "/var/lib/kubelet/kubeconfig"
+        )
+    fi
+    
+    local kubeconfig_found=false
+    for kubeconfig_path in "${kubeconfig_sources[@]}"; do
+        if [[ -f "$kubeconfig_path" ]] && [[ -s "$kubeconfig_path" ]]; then
+            print_success "Найден kubeconfig файл: $kubeconfig_path"
+            kube_config_content=$(cat "$kubeconfig_path")
+            kubeconfig_found=true
+            break
+        fi
+    done
+    
+    if [[ "$kubeconfig_found" != "true" ]]; then
+        print_error "Kubeconfig файл не найден на worker узле"
+        print_info "Убедитесь, что kubeconfig файл скопирован на worker узел в один из следующих путей:"
+        for path in "${kubeconfig_sources[@]}"; do
+            print_info "  - $path"
+        done
+        print_info "Или передайте путь к kubeconfig файлу через переменную KUBECONFIG_FILE"
+        return 1
+    fi
     
     # Создание конфигурации для root
     local root_kube_config="/root/.kube/config"
@@ -1244,7 +1269,7 @@ verify_cluster_join() {
     fi
     
     # Проверка подключения к API серверу
-    print_info "Проверка подключения к API серверу..."
+    print_info "Проверка подключения к API серверу $MASTER_IP:$MASTER_PORT..."
     if check_port_common "$MASTER_IP" "$MASTER_PORT" 5; then
         print_success "API сервер доступен"
     else
