@@ -698,29 +698,23 @@ execute_action() {
                     if [[ -n "$master_ip" && -n "$join_token" && -n "$ca_cert_hash" ]]; then
                         script_args=("--master-ip" "$master_ip" "--join-token" "$join_token" "--discovery-token-ca-cert-hash" "$ca_cert_hash" "--pause")
                         print_success "Параметры присоединения получены автоматически"
+
+                    # Копирование kubeconfig файла с master узла на worker
+                    if [[ "$hostname" != "$(hostname)" ]]; then
+                        print_info "Копирование kubeconfig файла с master узла $master_ip на worker $hostname..."
+                        if ! copy_kubeconfig_to_worker "$master_ip" "$ip"; then
+                            print_error "Не удалось скопировать kubeconfig файл"
+                            return 1
+                        fi
+                    fi
+
                     else
                         print_error "Не удалось извлечь параметры из команды присоединения"
                         return 1
                     fi
                 else
-                    # Для worker узлов нужны дополнительные параметры
-                    print_warning "Для установки Kubernetes Worker требуются дополнительные параметры:"
-                    print_info "  --master-ip IP - IP адрес контроллерного узла"
-                    print_info "  --join-token TOKEN - токен для присоединения к кластеру"
-                    print_info "  --discovery-token-ca-cert-hash HASH - хэш CA сертификата"
-                    echo
-                    print_info "Пример использования:"
-                    print_info "  $0 --host $alias --action install-k8s-worker --master-ip 10.72.66.51 --join-token abc123.def456 --discovery-token-ca-cert-hash sha256:..."
-                    echo
-                    print_prompt "Продолжить с параметрами по умолчанию? (y/N): "
-                    read -r continue_choice
-                    if [[ "$continue_choice" =~ ^[Yy]$ ]]; then
-                        script_args=("--master-ip" "10.72.66.51" "--join-token" "PLACEHOLDER" "--discovery-token-ca-cert-hash" "PLACEHOLDER" "--pause")
-                        print_warning "ВНИМАНИЕ: Используются заглушки для токена и хэша. Установка может завершиться ошибкой."
-                    else
-                        print_info "Установка отменена. Используйте командную строку с правильными параметрами."
-                        return 1
-                    fi
+                    print_info "Установка отменена. Используйте командную строку с правильными параметрами."
+                    return 1
                 fi
             fi
             ;;
