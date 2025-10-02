@@ -21,5 +21,5 @@ discli --insecure push ${DIR}/images/pause-3.8.tar registry:5000/pause:3.8
 discli --insecure push ${DIR}/images/pause-3.8.tar registry:5000/registry.k8s.io/pause:3.8
 
 # Cilium
-discli --insecure push ${DIR}/images/cilium-v1.16.5.tar registry:5000/cilium/cilium/cilium:v1.16.5
-discli --insecure push ${DIR}/images/cilium-operator-generic-v1.16.5.tar registry:5000/cilium/cilium/operator-generic:v1.16.5
+discli --insecure push ${DIR}/images/cilium-v1.16.5.tar registry:5000/cilium/cilium:v1.16.5
+discli --insecure push ${DIR}/images/cilium-operator-generic-v1.16.5.tar registry:5000/cilium/operator-generic:v1.16.5
