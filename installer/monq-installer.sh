@@ -119,10 +119,15 @@ show_help() {
     --join-token TOKEN    Токен для присоединения к кластеру
     --discovery-token-ca-cert-hash HASH  Хэш CA сертификата
 
+Дополнительные опции для инициализации хранилища Worker:
+    --device DEVICE       Устройство хранилища (например: /dev/sdb)
+    --mount MOUNT         Точка монтирования (по умолчанию: /mnt/k8s-storage)
+
 Примеры:
     $0 --host k01 --action setup-os
     $0 --host k01 --action install-k8s-controller --k8s-version 1.31.4
     $0 --host k02 --action install-k8s-worker --master-ip 10.72.66.51 --join-token abc123.def456 --discovery-token-ca-cert-hash sha256:...
+    $0 --host k02 --action init-k8s-worker-storage --device /dev/sdb
     $0 --dry-run
     $0 --log-level DEBUG
 
@@ -171,6 +176,14 @@ parse_arguments() {
                 ;;
             --discovery-token-ca-cert-hash)
                 DISCOVERY_TOKEN_CA_CERT_HASH="$2"
+                shift 2
+                ;;
+            --device)
+                K8S_WORKER_STORAGE="$2"
+                shift 2
+                ;;
+            --mount)
+                K8S_WORKER_MOUNT_POINT="$2"
                 shift 2
                 ;;
             --help)
@@ -422,6 +435,10 @@ show_action_menu() {
             ACTION_MENU_ITEMS+=("$action_index|install-k8s-worker")
             action_index=$((action_index + 1))
             
+            print_menu_item "  $action_index. Инициализация хранилища Kubernetes Worker"
+            ACTION_MENU_ITEMS+=("$action_index|init-k8s-worker-storage")
+            action_index=$((action_index + 1))
+            
             print_menu_item "  $action_index. Проверка состояния Kubernetes Worker"
             ACTION_MENU_ITEMS+=("$action_index|check-k8s-worker")
             action_index=$((action_index + 1))
@@ -648,6 +665,25 @@ execute_action() {
         check-k8s-worker)
             script_path="$PROJECT_DIR/scripts/check-k8s-worker.sh"
             script_args=("--format" "text")
+            ;;
+        init-k8s-worker-storage)
+            script_path="$PROJECT_DIR/scripts/init-k8s-worker-storage.sh"
+            script_args=()
+            
+            # Проверяем, указано ли устройство хранилища
+            if [[ -n "$K8S_WORKER_STORAGE" ]]; then
+                script_args+=("--device" "$K8S_WORKER_STORAGE")
+                print_info "Используется устройство хранилища: $K8S_WORKER_STORAGE"
+            else
+                print_warning "Устройство хранилища не указано"
+                print_info "Скрипт будет запущен без параметров - потребуется ввод устройства"
+            fi
+            
+            # Проверяем, указана ли точка монтирования
+            if [[ -n "$K8S_WORKER_MOUNT_POINT" ]]; then
+                script_args+=("--mount" "$K8S_WORKER_MOUNT_POINT")
+                print_info "Используется точка монтирования: $K8S_WORKER_MOUNT_POINT"
+            fi
             ;;
         reset-k8s-cluster)
             script_path="$PROJECT_DIR/scripts/reset-k8s-cluster.sh"
