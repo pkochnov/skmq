@@ -395,6 +395,15 @@ main() {
     # Инициализация логирования
     init_logging "/tmp/log/installer/init-k8s-worker-storage.log"
     
+    # Инициализация sudo сессии
+    if ! init_sudo_session; then
+        log_error "Не удалось инициализировать sudo сессию"
+        exit 1
+    fi
+    
+    # Установка обработчика сигналов для очистки
+    setup_signal_handlers
+    
     print_section "Проверка параметров"
     
     # Проверка устройства
@@ -451,6 +460,9 @@ main() {
     print_info "Ссылки созданы:"
     print_info "  /var/lib/containerd -> $MOUNT_POINT/containerd"
     print_info "  /var/lib/kubelet -> $MOUNT_POINT/kubelet"
+    
+    # Очистка ресурсов
+    cleanup
 }
 
 # Запуск основной функции
