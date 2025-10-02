@@ -5,83 +5,11 @@
 
 set -euo pipefail
 
-# Цветовые коды для вывода
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-WHITE='\033[1;37m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
+# Загрузка общих функций
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$PROJECT_DIR/common.sh"
 
-# Функции цветного вывода
-print_success() {
-    echo -e "${GREEN}✓${NC} $1"
-}
 
-print_error() {
-    echo -e "${RED}✗${NC} $1"
-}
-
-print_warning() {
-    echo -e "${YELLOW}⚠${NC} $1"
-}
-
-print_info() {
-    echo -e "${BLUE}ℹ${NC} $1"
-}
-
-print_header() {
-    echo -e "${PURPLE}${BOLD}=== $1 ===${NC}"
-}
-
-print_section() {
-    echo -e "${CYAN}--- $1 ---${NC}"
-}
-
-# Функция для выполнения команд с sudo
-run_sudo() {
-    if [[ $EUID -eq 0 ]]; then
-        "$@"
-    else
-        sudo "$@"
-    fi
-}
-
-# Функция инициализации sudo сессии
-init_sudo_session() {
-    print_section "Инициализация sudo сессии"
-    
-    # Проверяем, что sudo доступен
-    if ! command -v sudo >/dev/null 2>&1; then
-        print_error "sudo не установлен на системе"
-        exit 1
-    fi
-    
-    # Проверяем, что пользователь может использовать sudo
-    if ! sudo -n true 2>/dev/null; then
-        print_info "Требуется ввод пароля для sudo"
-        print_info "Введите пароль для продолжения работы скрипта"
-        
-        # Инициализируем sudo сессию
-        if ! sudo -v; then
-            print_error "Не удалось инициализировать sudo сессию"
-            exit 1
-        fi
-    else
-        print_success "Sudo сессия уже активна"
-    fi
-    
-    # Проверяем, что sudo работает
-    if ! sudo -n true 2>/dev/null; then
-        print_error "Sudo сессия не активна"
-        exit 1
-    fi
-    
-    print_success "Sudo сессия инициализирована"
-}
 
 # Функция показа справки
 show_help() {
@@ -275,7 +203,10 @@ main() {
     print_header "Экспорт kubeconfig с контроллера"
     
     # Инициализируем sudo сессию
-    init_sudo_session
+    if ! init_sudo_session; then
+        print_error "Не удалось инициализировать sudo сессию"
+        exit 1
+    fi
     
     # Проверяем, что скрипт запущен на контроллере
     check_controller
