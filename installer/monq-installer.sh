@@ -27,6 +27,9 @@ MASTER_IP=""
 JOIN_TOKEN=""
 DISCOVERY_TOKEN_CA_CERT_HASH=""
 
+# Глобальная переменная для пути к kubeconfig файлу
+KUBECONFIG_FILE="/tmp/kubeconfig-export"
+
 # Массивы для меню
 declare -a HOST_MENU_ITEMS=()
 declare -a ACTION_MENU_ITEMS=()
@@ -308,74 +311,33 @@ get_join_token_from_controller() {
     fi
 }
 
-# Функция получения kubeconfig файла с master узла на локальную машину
-get_kubeconfig_from_master() {
-    local master_ip="$1"
-    local kubeconfig_source="/etc/kubernetes/admin.conf"
-    local local_kubeconfig="/tmp/kubeconfig-master-$(date +%s)"
-    local remote_temp_file="/tmp/kubeconfig-$(date +%s)"
-    
-    print_info "Получение kubeconfig файла с master узла $master_ip..."
-    
-    # Шаг 1: Создаем временный файл на master узле через sudo cat
-    print_info "Создание временного файла на master узле..."
-    if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$MONQ_USER@$master_ip" "sudo cat $kubeconfig_source > $remote_temp_file"; then
-        print_success "Временный файл создан на master узле: $remote_temp_file"
-        
-        # Шаг 2: Скачиваем временный файл с master узла на локальную машину
-        print_info "Скачивание файла с master узла..."
-        if scp -o StrictHostKeyChecking=no "$MONQ_USER@$master_ip:$remote_temp_file" "$local_kubeconfig"; then
-            if [[ -s "$local_kubeconfig" ]]; then
-                print_success "Kubeconfig файл скачан с master узла: $local_kubeconfig"
-                
-                # Очищаем временный файл на master узле
-                ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$MONQ_USER@$master_ip" "rm -f $remote_temp_file" 2>/dev/null
-                
-                echo "$local_kubeconfig"
-                return 0
-            else
-                print_error "Скачан пустой kubeconfig файл с master узла"
-                rm -f "$local_kubeconfig"
-                # Очищаем временный файл на master узле
-                ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$MONQ_USER@$master_ip" "rm -f $remote_temp_file" 2>/dev/null
-                return 1
-            fi
-        else
-            print_error "Не удалось скачать kubeconfig файл с master узла"
-            # Очищаем временный файл на master узле
-            ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$MONQ_USER@$master_ip" "rm -f $remote_temp_file" 2>/dev/null
-            return 1
-        fi
-    else
-        print_error "Не удалось создать временный файл на master узле"
-        print_info "Убедитесь, что:"
-        print_info "  1. Пользователь $MONQ_USER имеет sudo права на master узле"
-        print_info "  2. Файл $kubeconfig_source существует на master узле"
-        print_info "  3. SSH доступен к master узлу"
-        return 1
-    fi
-}
-
 # Функция копирования kubeconfig файла на worker узел
 copy_kubeconfig_to_worker() {
-    local local_kubeconfig="$1"
+    local master_ip="$1"
     local worker_ip="$2"
-    local kubeconfig_dest="/tmp/kubeconfig"
-
-    print_info "Копирование kubeconfig файла на worker узел $worker_ip..."
-
-    # Проверяем, существует ли локальный файл kubeconfig
-    if [[ ! -f "$local_kubeconfig" ]]; then
-        print_error "Локальный файл kubeconfig не найден: $local_kubeconfig"
+    
+    print_info "Копирование kubeconfig файла с master узла $master_ip на worker $worker_ip..."
+    
+    if [[ ! -f "$KUBECONFIG_FILE" ]]; then
+        print_error "Экспортированный kubeconfig файл не найден: $KUBECONFIG_FILE"
+        print_info "Сначала выполните экспорт kubeconfig с контроллера:"
+        print_info "  ./monq-installer.sh --host k01 --action export-kubeconfig"
         return 1
     fi
-
+    
+    if [[ ! -s "$KUBECONFIG_FILE" ]]; then
+        print_error "Файл kubeconfig пустой: $KUBECONFIG_FILE"
+        return 1
+    fi
+    
+    print_info "Найден kubeconfig файл: $KUBECONFIG_FILE"
+    
     # Копируем kubeconfig с локальной машины на worker узел
-    if scp -o StrictHostKeyChecking=no "$local_kubeconfig" "$MONQ_USER@$worker_ip:$kubeconfig_dest"; then
-        print_success "Kubeconfig файл успешно скопирован на worker узел: $kubeconfig_dest"
+    if scp -o StrictHostKeyChecking=no "$KUBECONFIG_FILE" "$MONQ_USER@$worker_ip:/tmp/kubeconfig"; then
+        print_success "Kubeconfig успешно скопирован на worker узел"
         return 0
     else
-        print_error "Не удалось скопировать kubeconfig файл на worker узел"
+        print_error "Не удалось скопировать kubeconfig на worker узел"
         return 1
     fi
 }
@@ -1001,13 +963,12 @@ execute_action() {
         if [[ "$hostname" != "$(hostname)" ]]; then
             # Копируем экспортированный kubeconfig на локальную машину
             local remote_kubeconfig="/tmp/kubeconfig-export"
-            local local_kubeconfig="./kubeconfig-export-$(date +%Y%m%d-%H%M%S)"
             
             print_info "Копирование экспортированного kubeconfig на локальную машину..."
-            if scp -o StrictHostKeyChecking=no "$MONQ_USER@$ip:$remote_kubeconfig" "$local_kubeconfig"; then
-                print_success "Kubeconfig скопирован на локальную машину: $local_kubeconfig"
+            if scp -o StrictHostKeyChecking=no "$MONQ_USER@$ip:$remote_kubeconfig" "$KUBECONFIG_FILE"; then
+                print_success "Kubeconfig скопирован на локальную машину: $KUBECONFIG_FILE"
                 print_info "Теперь вы можете скопировать его на worker узлы:"
-                print_info "  scp $local_kubeconfig $MONQ_USER@<worker-ip>:/tmp/kubeconfig"
+                print_info "  scp $KUBECONFIG_FILE $MONQ_USER@<worker-ip>:/tmp/kubeconfig"
             else
                 print_warning "Не удалось скопировать kubeconfig на локальную машину"
                 print_info "Файл остается на контроллере: $remote_kubeconfig"
