@@ -357,44 +357,25 @@ get_kubeconfig_from_master() {
 }
 
 # Функция копирования kubeconfig файла на worker узел
-copy_kubeconfig_to_worker_local() {
+copy_kubeconfig_to_worker() {
     local local_kubeconfig="$1"
     local worker_ip="$2"
     local kubeconfig_dest="/tmp/kubeconfig"
-    
+
     print_info "Копирование kubeconfig файла на worker узел $worker_ip..."
-    
+
+    # Проверяем, существует ли локальный файл kubeconfig
+    if [[ ! -f "$local_kubeconfig" ]]; then
+        print_error "Локальный файл kubeconfig не найден: $local_kubeconfig"
+        return 1
+    fi
+
     # Копируем kubeconfig с локальной машины на worker узел
     if scp -o StrictHostKeyChecking=no "$local_kubeconfig" "$MONQ_USER@$worker_ip:$kubeconfig_dest"; then
         print_success "Kubeconfig файл успешно скопирован на worker узел: $kubeconfig_dest"
         return 0
     else
         print_error "Не удалось скопировать kubeconfig файл на worker узел"
-        return 1
-    fi
-}
-
-# Функция копирования kubeconfig файла с master узла на worker (объединенная)
-copy_kubeconfig_to_worker() {
-    local master_ip="$1"
-    local worker_ip="$2"
-    
-    print_info "Копирование kubeconfig файла с master узла $master_ip на worker $worker_ip..."
-    
-    # Шаг 1: Получаем kubeconfig с master узла на локальную машину
-    local local_kubeconfig
-    if local_kubeconfig=$(get_kubeconfig_from_master "$master_ip"); then
-        # Шаг 2: Копируем kubeconfig с локальной машины на worker узел
-        if copy_kubeconfig_to_worker_local "$local_kubeconfig" "$worker_ip"; then
-            # Очищаем временный файл
-            rm -f "$local_kubeconfig"
-            return 0
-        else
-            # Очищаем временный файл при ошибке
-            rm -f "$local_kubeconfig"
-            return 1
-        fi
-    else
         return 1
     fi
 }
@@ -513,6 +494,10 @@ show_action_menu() {
             
             print_menu_item "  $action_index. Проверка состояния Kubernetes Controller"
             ACTION_MENU_ITEMS+=("$action_index|check-k8s-controller")
+            action_index=$((action_index + 1))
+            
+            print_menu_item "  $action_index. Экспорт kubeconfig файла"
+            ACTION_MENU_ITEMS+=("$action_index|export-kubeconfig")
             action_index=$((action_index + 1))
             
             print_menu_item "  $action_index. Сброс кластера Kubernetes"
@@ -707,6 +692,10 @@ execute_action() {
         install-k8s-controller)
             script_path="$PROJECT_DIR/scripts/install-k8s-controller.sh"
             script_args=("--k8s-version" "$K8S_VERSION" "--cni" "cilium" "--pause")
+            ;;
+        export-kubeconfig)
+            script_path="$PROJECT_DIR/scripts/export-kubeconfig.sh"
+            script_args=("--output-dir" "/tmp" "--filename" "kubeconfig-export")
             ;;
         install-k8s-worker)
             script_path="$PROJECT_DIR/scripts/install-k8s-worker.sh"
@@ -1004,6 +993,25 @@ execute_action() {
         if ! bash "$script_path" "${script_args[@]}"; then
             log_error "Ошибка при выполнении скрипта"
             return 1
+        fi
+    fi
+    
+    # Специальная обработка для export-kubeconfig
+    if [[ "$action" == "export-kubeconfig" ]]; then
+        if [[ "$hostname" != "$(hostname)" ]]; then
+            # Копируем экспортированный kubeconfig на локальную машину
+            local remote_kubeconfig="/tmp/kubeconfig-export"
+            local local_kubeconfig="./kubeconfig-export-$(date +%Y%m%d-%H%M%S)"
+            
+            print_info "Копирование экспортированного kubeconfig на локальную машину..."
+            if scp -o StrictHostKeyChecking=no "$MONQ_USER@$ip:$remote_kubeconfig" "$local_kubeconfig"; then
+                print_success "Kubeconfig скопирован на локальную машину: $local_kubeconfig"
+                print_info "Теперь вы можете скопировать его на worker узлы:"
+                print_info "  scp $local_kubeconfig $MONQ_USER@<worker-ip>:/tmp/kubeconfig"
+            else
+                print_warning "Не удалось скопировать kubeconfig на локальную машину"
+                print_info "Файл остается на контроллере: $remote_kubeconfig"
+            fi
         fi
     fi
     
