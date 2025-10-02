@@ -55,14 +55,6 @@ show_help() {
 EOF
 }
 
-# Проверка прав root
-check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        print_error "Этот скрипт должен запускаться с правами root"
-        print_info "Используйте: sudo $0 $*"
-        exit 1
-    fi
-}
 
 # Проверка существования устройства
 check_device() {
@@ -103,20 +95,20 @@ check_mount_point() {
     fi
     
     # Создание директории если не существует
-    if [[ ! -d "$mount_point" ]]; then
+    if ! run_sudo test -d "$mount_point"; then
         if [[ "$DRY_RUN" == "true" ]]; then
             print_info "DRY RUN: Создание директории $mount_point"
         else
             print_info "Создание директории $mount_point"
-            mkdir -p "$mount_point" || {
+            if ! run_sudo mkdir -p "$mount_point"; then
                 print_error "Не удалось создать директорию $mount_point"
                 return 1
-            }
+            fi
         fi
     fi
     
     # Проверка, что директория пуста
-    if [[ -d "$mount_point" ]] && [[ -n "$(ls -A "$mount_point" 2>/dev/null)" ]]; then
+    if run_sudo test -d "$mount_point" && [[ -n "$(run_sudo ls -A "$mount_point" 2>/dev/null)" ]]; then
         if [[ "$FORCE" != "true" ]]; then
             print_error "Директория $mount_point не пуста. Используйте --force для принудительного выполнения"
             return 1
@@ -140,7 +132,7 @@ create_filesystem() {
     fi
     
     # Создание файловой системы XFS без партиций
-    if mkfs.xfs -f "$device"; then
+    if run_sudo mkfs.xfs -f "$device"; then
         print_success "Файловая система XFS создана на $device"
         return 0
     else
@@ -157,7 +149,7 @@ add_to_fstab() {
     print_info "Добавление записи в /etc/fstab"
     
     # Проверка, что запись еще не существует
-    if grep -q "^$device " /etc/fstab; then
+    if run_sudo grep -q "^$device " /etc/fstab; then
         print_warning "Запись для $device уже существует в /etc/fstab"
         return 0
     fi
@@ -170,9 +162,7 @@ add_to_fstab() {
     
     # Добавление записи в fstab
     local fstab_entry="$device $mount_point xfs defaults 0 2"
-    echo "$fstab_entry" >> /etc/fstab
-    
-    if [[ $? -eq 0 ]]; then
+    if echo "$fstab_entry" | run_sudo tee -a /etc/fstab >/dev/null; then
         print_success "Запись добавлена в /etc/fstab"
         return 0
     else
@@ -193,7 +183,7 @@ mount_device() {
         return 0
     fi
     
-    if mount "$device" "$mount_point"; then
+    if run_sudo mount "$device" "$mount_point"; then
         print_success "Устройство смонтировано в $mount_point"
         return 0
     else
@@ -217,7 +207,7 @@ create_storage_directories() {
         if [[ "$DRY_RUN" == "true" ]]; then
             print_info "DRY RUN: mkdir -p $dir"
         else
-            if mkdir -p "$dir"; then
+            if run_sudo mkdir -p "$dir"; then
                 print_success "Создана директория $dir"
             else
                 print_error "Не удалось создать директорию $dir"
@@ -239,30 +229,30 @@ create_symlinks() {
     local containerd_link="/var/lib/containerd"
     local containerd_target="$mount_point/containerd"
     
-    if [[ -L "$containerd_link" ]]; then
+    if run_sudo test -L "$containerd_link"; then
         print_warning "Символическая ссылка $containerd_link уже существует"
         if [[ "$FORCE" == "true" ]]; then
             print_info "Удаление существующей ссылки (принудительный режим)"
             if [[ "$DRY_RUN" != "true" ]]; then
-                rm -f "$containerd_link"
+                run_sudo rm -f "$containerd_link"
             fi
         else
             print_info "Пропуск создания ссылки для containerd"
         fi
     fi
     
-    if [[ ! -L "$containerd_link" ]]; then
-        if [[ -d "$containerd_link" ]]; then
+    if ! run_sudo test -L "$containerd_link"; then
+        if run_sudo test -d "$containerd_link"; then
             print_info "Перемещение существующей директории $containerd_link в $containerd_target"
             if [[ "$DRY_RUN" != "true" ]]; then
-                mv "$containerd_link" "$containerd_target"
+                run_sudo mv "$containerd_link" "$containerd_target"
             fi
         fi
         
         if [[ "$DRY_RUN" == "true" ]]; then
             print_info "DRY RUN: ln -s $containerd_target $containerd_link"
         else
-            if ln -s "$containerd_target" "$containerd_link"; then
+            if run_sudo ln -s "$containerd_target" "$containerd_link"; then
                 print_success "Создана ссылка $containerd_link -> $containerd_target"
             else
                 print_error "Не удалось создать ссылку $containerd_link"
@@ -275,30 +265,30 @@ create_symlinks() {
     local kubelet_link="/var/lib/kubelet"
     local kubelet_target="$mount_point/kubelet"
     
-    if [[ -L "$kubelet_link" ]]; then
+    if run_sudo test -L "$kubelet_link"; then
         print_warning "Символическая ссылка $kubelet_link уже существует"
         if [[ "$FORCE" == "true" ]]; then
             print_info "Удаление существующей ссылки (принудительный режим)"
             if [[ "$DRY_RUN" != "true" ]]; then
-                rm -f "$kubelet_link"
+                run_sudo rm -f "$kubelet_link"
             fi
         else
             print_info "Пропуск создания ссылки для kubelet"
         fi
     fi
     
-    if [[ ! -L "$kubelet_link" ]]; then
-        if [[ -d "$kubelet_link" ]]; then
+    if ! run_sudo test -L "$kubelet_link"; then
+        if run_sudo test -d "$kubelet_link"; then
             print_info "Перемещение существующей директории $kubelet_link в $kubelet_target"
             if [[ "$DRY_RUN" != "true" ]]; then
-                mv "$kubelet_link" "$kubelet_target"
+                run_sudo mv "$kubelet_link" "$kubelet_target"
             fi
         fi
         
         if [[ "$DRY_RUN" == "true" ]]; then
             print_info "DRY RUN: ln -s $kubelet_target $kubelet_link"
         else
-            if ln -s "$kubelet_target" "$kubelet_link"; then
+            if run_sudo ln -s "$kubelet_target" "$kubelet_link"; then
                 print_success "Создана ссылка $kubelet_link -> $kubelet_target"
             else
                 print_error "Не удалось создать ссылку $kubelet_link"
@@ -317,7 +307,7 @@ verify_installation() {
     print_info "Проверка результата установки"
     
     # Проверка монтирования
-    if mount | grep -q "$mount_point"; then
+    if run_sudo mount | grep -q "$mount_point"; then
         print_success "Устройство смонтировано в $mount_point"
     else
         print_error "Устройство не смонтировано в $mount_point"
@@ -328,14 +318,14 @@ verify_installation() {
     local containerd_link="/var/lib/containerd"
     local kubelet_link="/var/lib/kubelet"
     
-    if [[ -L "$containerd_link" ]]; then
+    if run_sudo test -L "$containerd_link"; then
         print_success "Ссылка $containerd_link создана"
     else
         print_error "Ссылка $containerd_link не создана"
         return 1
     fi
     
-    if [[ -L "$kubelet_link" ]]; then
+    if run_sudo test -L "$kubelet_link"; then
         print_success "Ссылка $kubelet_link создана"
     else
         print_error "Ссылка $kubelet_link не создана"
@@ -343,14 +333,14 @@ verify_installation() {
     fi
     
     # Проверка директорий в хранилище
-    if [[ -d "$mount_point/containerd" ]]; then
+    if run_sudo test -d "$mount_point/containerd"; then
         print_success "Директория $mount_point/containerd создана"
     else
         print_error "Директория $mount_point/containerd не создана"
         return 1
     fi
     
-    if [[ -d "$mount_point/kubelet" ]]; then
+    if run_sudo test -d "$mount_point/kubelet"; then
         print_success "Директория $mount_point/kubelet создана"
     else
         print_error "Директория $mount_point/kubelet не создана"
@@ -401,9 +391,6 @@ main() {
         print_info "Используйте: $0 -d /dev/sdb"
         exit 1
     fi
-    
-    # Проверка прав root
-    check_root
     
     # Инициализация логирования
     init_logging "/tmp/log/installer/init-k8s-worker-storage.log"
