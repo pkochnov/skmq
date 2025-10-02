@@ -1039,6 +1039,74 @@ join_cluster() {
     return 0
 }
 
+# Настройка kubectl для работы с кластером
+configure_kubectl() {
+    print_section "Настройка kubectl для работы с кластером"
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        print_info "[DRY-RUN] Настройка kubectl"
+        return 0
+    fi
+    
+    # Создание директории для конфигурации kubectl
+    local kube_config_dir="/root/.kube"
+    if run_sudo mkdir -p "$kube_config_dir"; then
+        log_debug "Директория конфигурации kubectl создана: $kube_config_dir"
+    else
+        print_error "Ошибка при создании директории конфигурации kubectl"
+        return 1
+    fi
+    
+    # Создание базовой конфигурации kubectl
+    local kube_config_file="$kube_config_dir/config"
+    cat << EOF > /tmp/kubeconfig
+apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: https://$MASTER_IP:$MASTER_PORT
+    insecure-skip-tls-verify: true
+  name: kubernetes
+contexts:
+- context:
+    cluster: kubernetes
+    user: kubelet
+  name: kubelet@kubernetes
+current-context: kubelet@kubernetes
+users:
+- name: kubelet
+  user:
+    token: ""
+EOF
+    
+    # Копируем конфигурацию
+    if run_sudo cp /tmp/kubeconfig "$kube_config_file"; then
+        run_sudo chmod 600 "$kube_config_file"
+        run_sudo chown root:root "$kube_config_file"
+        rm -f /tmp/kubeconfig
+        print_success "Конфигурация kubectl создана"
+    else
+        rm -f /tmp/kubeconfig
+        print_error "Ошибка при создании конфигурации kubectl"
+        return 1
+    fi
+    
+    # Настройка переменной окружения KUBECONFIG
+    local kubeconfig_env="export KUBECONFIG=$kube_config_file"
+    if ! grep -q "KUBECONFIG" /root/.bashrc; then
+        echo "$kubeconfig_env" | run_sudo tee -a /root/.bashrc >/dev/null
+        print_success "Переменная KUBECONFIG добавлена в .bashrc"
+    else
+        print_info "Переменная KUBECONFIG уже настроена в .bashrc"
+    fi
+    
+    # Установка переменной окружения для текущей сессии
+    export KUBECONFIG="$kube_config_file"
+    
+    print_success "kubectl настроен для работы с кластером $MASTER_IP:$MASTER_PORT"
+    return 0
+}
+
 # Настройка файрвола
 configure_firewall() {
     print_section "Настройка файрвола для Kubernetes"
@@ -1126,6 +1194,27 @@ verify_cluster_join() {
     else
         print_error "API сервер недоступен"
         failed_checks=$((failed_checks + 1))
+    fi
+    
+    # Проверка конфигурации kubectl
+    print_info "Проверка конфигурации kubectl..."
+    if [[ -f "/root/.kube/config" ]]; then
+        print_success "Конфигурация kubectl найдена"
+        
+        # Проверка подключения к кластеру через kubectl
+        print_info "Проверка подключения к кластеру через kubectl..."
+        if run_sudo kubectl get nodes --request-timeout=10s &>/dev/null; then
+            print_success "kubectl успешно подключился к кластеру"
+            
+            # Показываем информацию о узлах
+            print_info "Информация о узлах кластера:"
+            run_sudo kubectl get nodes -o wide
+        else
+            print_warning "kubectl не может подключиться к кластеру"
+            print_info "Это может быть нормально, если узел еще не полностью инициализирован"
+        fi
+    else
+        print_warning "Конфигурация kubectl не найдена"
     fi
     
     # Проверка логов kubelet
@@ -1328,6 +1417,7 @@ main() {
         "install_kubernetes_components"
         "pull_k8s_images"
         "join_cluster"
+        "configure_kubectl"
         "configure_firewall"
         "verify_cluster_join"
         "install_helm"
@@ -1366,9 +1456,13 @@ main() {
     echo -e "${BLUE}Контроллерный узел:${NC} $MASTER_IP:$MASTER_PORT"
     echo -e "${BLUE}Статус kubelet:${NC} $(systemctl is-active kubelet)"
     echo -e "${BLUE}Статус containerd:${NC} $(systemctl is-active containerd)"
+    echo -e "${BLUE}Конфигурация kubectl:${NC} /root/.kube/config"
     echo
     echo -e "${YELLOW}Для проверки статуса узла на контроллерном узле выполните:${NC}"
     echo -e "${GREEN}kubectl get nodes${NC}"
+    echo
+    echo -e "${YELLOW}Для проверки статуса узла локально выполните:${NC}"
+    echo -e "${GREEN}kubectl get nodes -o wide${NC}"
     echo
     echo -e "${BLUE}Лог файл:${NC} $log_file"
     
