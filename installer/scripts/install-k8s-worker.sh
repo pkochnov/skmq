@@ -1048,19 +1048,19 @@ configure_kubectl() {
         return 0
     fi
     
-    # Создание директории для конфигурации kubectl
-    local kube_config_dir="/root/.kube"
-    if run_sudo mkdir -p "$kube_config_dir"; then
-        log_debug "Директория конфигурации kubectl создана: $kube_config_dir"
-    else
-        print_error "Ошибка при создании директории конфигурации kubectl"
-        return 1
-    fi
+    # Создание директорий для конфигурации kubectl
+    local kube_config_dirs=("/root/.kube" "/home/$SUDO_USER/.kube" "/etc/kubernetes")
     
-    # Создание базовой конфигурации kubectl
-    local kube_config_file="$kube_config_dir/config"
-    cat << EOF > /tmp/kubeconfig
-apiVersion: v1
+    for kube_config_dir in "${kube_config_dirs[@]}"; do
+        if run_sudo mkdir -p "$kube_config_dir"; then
+            log_debug "Директория конфигурации kubectl создана: $kube_config_dir"
+        else
+            print_warning "Не удалось создать директорию: $kube_config_dir"
+        fi
+    done
+    
+    # Создание конфигурации kubectl с анонимным доступом
+    local kube_config_content="apiVersion: v1
 kind: Config
 clusters:
 - cluster:
@@ -1070,40 +1070,87 @@ clusters:
 contexts:
 - context:
     cluster: kubernetes
-    user: kubelet
-  name: kubelet@kubernetes
-current-context: kubelet@kubernetes
+    user: anonymous
+  name: default
+current-context: default
 users:
-- name: kubelet
-  user:
-    token: ""
-EOF
+- name: anonymous
+  user: {}"
     
-    # Копируем конфигурацию
-    if run_sudo cp /tmp/kubeconfig "$kube_config_file"; then
-        run_sudo chmod 600 "$kube_config_file"
-        run_sudo chown root:root "$kube_config_file"
-        rm -f /tmp/kubeconfig
-        print_success "Конфигурация kubectl создана"
-    else
-        rm -f /tmp/kubeconfig
-        print_error "Ошибка при создании конфигурации kubectl"
-        return 1
+    # Создание конфигурации для root
+    local root_kube_config="/root/.kube/config"
+    echo "$kube_config_content" | run_sudo tee "$root_kube_config" >/dev/null
+    run_sudo chmod 600 "$root_kube_config"
+    run_sudo chown root:root "$root_kube_config"
+    
+    # Создание конфигурации для обычного пользователя
+    if [[ -n "$SUDO_USER" ]]; then
+        local user_kube_config="/home/$SUDO_USER/.kube/config"
+        echo "$kube_config_content" | run_sudo tee "$user_kube_config" >/dev/null
+        run_sudo chmod 600 "$user_kube_config"
+        run_sudo chown "$SUDO_USER:$SUDO_USER" "$user_kube_config"
     fi
     
-    # Настройка переменной окружения KUBECONFIG
-    local kubeconfig_env="export KUBECONFIG=$kube_config_file"
+    # Создание глобальной конфигурации
+    local global_kube_config="/etc/kubernetes/kubeconfig"
+    echo "$kube_config_content" | run_sudo tee "$global_kube_config" >/dev/null
+    run_sudo chmod 644 "$global_kube_config"
+    
+    # Настройка переменных окружения для root
+    local kubeconfig_env="export KUBECONFIG=$root_kube_config"
     if ! grep -q "KUBECONFIG" /root/.bashrc; then
         echo "$kubeconfig_env" | run_sudo tee -a /root/.bashrc >/dev/null
-        print_success "Переменная KUBECONFIG добавлена в .bashrc"
+        print_success "Переменная KUBECONFIG добавлена в /root/.bashrc"
     else
-        print_info "Переменная KUBECONFIG уже настроена в .bashrc"
+        print_info "Переменная KUBECONFIG уже настроена в /root/.bashrc"
+    fi
+    
+    # Настройка переменных окружения для обычного пользователя
+    if [[ -n "$SUDO_USER" ]]; then
+        local user_bashrc="/home/$SUDO_USER/.bashrc"
+        local user_kubeconfig_env="export KUBECONFIG=$user_kube_config"
+        if ! grep -q "KUBECONFIG" "$user_bashrc"; then
+            echo "$user_kubeconfig_env" | run_sudo tee -a "$user_bashrc" >/dev/null
+            run_sudo chown "$SUDO_USER:$SUDO_USER" "$user_bashrc"
+            print_success "Переменная KUBECONFIG добавлена в $user_bashrc"
+        else
+            print_info "Переменная KUBECONFIG уже настроена в $user_bashrc"
+        fi
+    fi
+    
+    # Создание символических ссылок для удобства
+    run_sudo ln -sf "$global_kube_config" /usr/local/bin/kubeconfig 2>/dev/null || true
+    
+    # Создание алиаса kubectl для удобства
+    local kubectl_alias="alias kubectl='kubectl --kubeconfig=$global_kube_config'"
+    
+    # Добавление алиаса для root
+    if ! grep -q "alias kubectl=" /root/.bashrc; then
+        echo "$kubectl_alias" | run_sudo tee -a /root/.bashrc >/dev/null
+        print_success "Алиас kubectl добавлен в /root/.bashrc"
+    fi
+    
+    # Добавление алиаса для обычного пользователя
+    if [[ -n "$SUDO_USER" ]]; then
+        local user_bashrc="/home/$SUDO_USER/.bashrc"
+        if ! grep -q "alias kubectl=" "$user_bashrc"; then
+            echo "$kubectl_alias" | run_sudo tee -a "$user_bashrc" >/dev/null
+            run_sudo chown "$SUDO_USER:$SUDO_USER" "$user_bashrc"
+            print_success "Алиас kubectl добавлен в $user_bashrc"
+        fi
     fi
     
     # Установка переменной окружения для текущей сессии
-    export KUBECONFIG="$kube_config_file"
+    export KUBECONFIG="$root_kube_config"
     
     print_success "kubectl настроен для работы с кластером $MASTER_IP:$MASTER_PORT"
+    print_info "Конфигурация доступна для:"
+    print_info "  - root: $root_kube_config"
+    if [[ -n "$SUDO_USER" ]]; then
+        print_info "  - $SUDO_USER: /home/$SUDO_USER/.kube/config"
+    fi
+    print_info "  - глобальная: $global_kube_config"
+    
     return 0
 }
 
@@ -1198,17 +1245,25 @@ verify_cluster_join() {
     
     # Проверка конфигурации kubectl
     print_info "Проверка конфигурации kubectl..."
-    if [[ -f "/root/.kube/config" ]]; then
-        print_success "Конфигурация kubectl найдена"
-        
+    local kube_config_files=("/root/.kube/config" "/etc/kubernetes/kubeconfig")
+    local config_found=false
+    
+    for config_file in "${kube_config_files[@]}"; do
+        if [[ -f "$config_file" ]]; then
+            print_success "Конфигурация kubectl найдена: $config_file"
+            config_found=true
+        fi
+    done
+    
+    if [[ "$config_found" == "true" ]]; then
         # Проверка подключения к кластеру через kubectl
         print_info "Проверка подключения к кластеру через kubectl..."
-        if run_sudo kubectl get nodes --request-timeout=10s &>/dev/null; then
+        if run_sudo kubectl --kubeconfig=/etc/kubernetes/kubeconfig get nodes --request-timeout=10s &>/dev/null; then
             print_success "kubectl успешно подключился к кластеру"
             
             # Показываем информацию о узлах
             print_info "Информация о узлах кластера:"
-            run_sudo kubectl get nodes -o wide
+            run_sudo kubectl --kubeconfig=/etc/kubernetes/kubeconfig get nodes -o wide
         else
             print_warning "kubectl не может подключиться к кластеру"
             print_info "Это может быть нормально, если узел еще не полностью инициализирован"
@@ -1414,11 +1469,11 @@ main() {
         "install_toml_cli"
         "configure_containerd"
         "configure_insecure_registry"
+        "configure_firewall"
         "install_kubernetes_components"
         "pull_k8s_images"
-        "join_cluster"
         "configure_kubectl"
-        "configure_firewall"
+        "join_cluster"
         "verify_cluster_join"
         "install_helm"
         "install_ingress_nginx"
@@ -1463,6 +1518,10 @@ main() {
     echo
     echo -e "${YELLOW}Для проверки статуса узла локально выполните:${NC}"
     echo -e "${GREEN}kubectl get nodes -o wide${NC}"
+    echo
+    echo -e "${YELLOW}Альтернативные способы использования kubectl:${NC}"
+    echo -e "${GREEN}kubectl --kubeconfig=/etc/kubernetes/kubeconfig get nodes${NC}"
+    echo -e "${GREEN}KUBECONFIG=/etc/kubernetes/kubeconfig kubectl get nodes${NC}"
     echo
     echo -e "${BLUE}Лог файл:${NC} $log_file"
     
