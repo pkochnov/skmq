@@ -1048,8 +1048,17 @@ configure_kubectl() {
         return 0
     fi
     
+    # Получаем текущего пользователя
+    local current_user=$(whoami)
+    if [[ "$current_user" == "root" ]]; then
+        current_user=""
+    fi
+    
     # Создание директорий для конфигурации kubectl
-    local kube_config_dirs=("/root/.kube" "/home/$SUDO_USER/.kube" "/etc/kubernetes")
+    local kube_config_dirs=("/root/.kube" "/etc/kubernetes")
+    if [[ -n "$current_user" ]]; then
+        kube_config_dirs+=("/home/$current_user/.kube")
+    fi
     
     for kube_config_dir in "${kube_config_dirs[@]}"; do
         if run_sudo mkdir -p "$kube_config_dir"; then
@@ -1084,11 +1093,11 @@ users:
     run_sudo chown root:root "$root_kube_config"
     
     # Создание конфигурации для обычного пользователя
-    if [[ -n "$SUDO_USER" ]]; then
-        local user_kube_config="/home/$SUDO_USER/.kube/config"
+    if [[ -n "$current_user" ]]; then
+        local user_kube_config="/home/$current_user/.kube/config"
         echo "$kube_config_content" | run_sudo tee "$user_kube_config" >/dev/null
         run_sudo chmod 600 "$user_kube_config"
-        run_sudo chown "$SUDO_USER:$SUDO_USER" "$user_kube_config"
+        run_sudo chown "$current_user:$current_user" "$user_kube_config"
     fi
     
     # Создание глобальной конфигурации
@@ -1106,12 +1115,12 @@ users:
     fi
     
     # Настройка переменных окружения для обычного пользователя
-    if [[ -n "$SUDO_USER" ]]; then
-        local user_bashrc="/home/$SUDO_USER/.bashrc"
+    if [[ -n "$current_user" ]]; then
+        local user_bashrc="/home/$current_user/.bashrc"
         local user_kubeconfig_env="export KUBECONFIG=$user_kube_config"
         if ! grep -q "KUBECONFIG" "$user_bashrc"; then
             echo "$user_kubeconfig_env" | run_sudo tee -a "$user_bashrc" >/dev/null
-            run_sudo chown "$SUDO_USER:$SUDO_USER" "$user_bashrc"
+            run_sudo chown "$current_user:$current_user" "$user_bashrc"
             print_success "Переменная KUBECONFIG добавлена в $user_bashrc"
         else
             print_info "Переменная KUBECONFIG уже настроена в $user_bashrc"
@@ -1131,11 +1140,11 @@ users:
     fi
     
     # Добавление алиаса для обычного пользователя
-    if [[ -n "$SUDO_USER" ]]; then
-        local user_bashrc="/home/$SUDO_USER/.bashrc"
+    if [[ -n "$current_user" ]]; then
+        local user_bashrc="/home/$current_user/.bashrc"
         if ! grep -q "alias kubectl=" "$user_bashrc"; then
             echo "$kubectl_alias" | run_sudo tee -a "$user_bashrc" >/dev/null
-            run_sudo chown "$SUDO_USER:$SUDO_USER" "$user_bashrc"
+            run_sudo chown "$current_user:$current_user" "$user_bashrc"
             print_success "Алиас kubectl добавлен в $user_bashrc"
         fi
     fi
@@ -1146,8 +1155,8 @@ users:
     print_success "kubectl настроен для работы с кластером $MASTER_IP:$MASTER_PORT"
     print_info "Конфигурация доступна для:"
     print_info "  - root: $root_kube_config"
-    if [[ -n "$SUDO_USER" ]]; then
-        print_info "  - $SUDO_USER: /home/$SUDO_USER/.kube/config"
+    if [[ -n "$current_user" ]]; then
+        print_info "  - $current_user: /home/$current_user/.kube/config"
     fi
     print_info "  - глобальная: $global_kube_config"
     
