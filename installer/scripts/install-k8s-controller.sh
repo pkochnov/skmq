@@ -1138,10 +1138,9 @@ pull_k8s_images() {
     
     if run_sudo $pull_cmd; then
         print_success "Образы Kubernetes загружены с локального реестра"
-        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-apiserver:${K8S_VERSION}" "registry.k8s.io/kube-apiserver:${K8S_VERSION}"
-        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-controller-manager:${K8S_VERSION}" "registry.k8s.io/kube-controller-manager:${K8S_VERSION}"
-        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-scheduler:${K8S_VERSION}" "registry.k8s.io/kube-scheduler:${K8S_VERSION}"
-        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-proxy:${K8S_VERSION}" "registry.k8s.io/kube-proxy:${K8S_VERSION}"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-apiserver:v${K8S_VERSION}" "registry.k8s.io/kube-apiserver:v${K8S_VERSION}"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-controller-manager:v${K8S_VERSION}" "registry.k8s.io/kube-controller-manager:v${K8S_VERSION}"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-scheduler:v${K8S_VERSION}" "registry.k8s.io/kube-scheduler:v${K8S_VERSION}"
         run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/etcd:3.5.15-0" "registry.k8s.io/etcd:3.5.15-0"
         run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/pause:3.10" "registry.k8s.io/pause:3.10"
    else
