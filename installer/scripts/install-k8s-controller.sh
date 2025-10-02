@@ -1323,7 +1323,6 @@ install_cilium() {
     else
         # Установка Cilium с помощью Helm
         print_info "Offline утановка Cilium через Helm..."
-        mkdir -p ~/helm/cilium
         local cilium_chart_url="https://github.com/pkochnov/skmq/raw/refs/heads/master/charts/cilium-${CILIUM_VERSION}.tgz"
         cilium_chart="~/helm/cilium/cilium-${CILIUM_VERSION}.tgz"
 
@@ -1331,7 +1330,8 @@ install_cilium() {
         if [[ -f "$cilium_chart" ]]; then
             print_info "Cilium chart уже скачан: $cilium_chart"
         else
-            print_info "Скачиваем Cilium chart: $cilium_chart_url"
+            mkdir -p $(dirname $cilium_chart)
+            print_info "Скачиваем Cilium chart: $cilium_chart_url в $cilium_chart"
             if wget -q "$cilium_chart_url" -O "$cilium_chart"; then
                 print_success "Cilium chart скачан"
             else
