@@ -1024,7 +1024,6 @@ join_cluster() {
     local join_cmd="kubeadm join $MASTER_IP:$MASTER_PORT \
         --token $JOIN_TOKEN \
         --discovery-token-ca-cert-hash $DISCOVERY_TOKEN_CA_CERT_HASH \
-        --image-repository=registry:5000 \
         --cri-socket=unix:///var/run/containerd/containerd.sock"
     
     print_info "Выполнение команды присоединения к кластеру..."
