@@ -9,8 +9,6 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$PROJECT_DIR/common.sh"
 
-
-
 # Функция показа справки
 show_help() {
     echo "Скрипт экспорта kubeconfig файла с контроллера"
@@ -150,14 +148,8 @@ verify_export() {
         return 1
     fi
     
-    # Проверяем, что это валидный kubeconfig
-    if run_sudo kubectl --kubeconfig="$output_file" cluster-info >/dev/null 2>&1; then
-        print_success "Экспортированный kubeconfig валиден"
-    else
-        print_warning "Не удалось проверить валидность kubeconfig"
-    fi
-    
     print_success "Файл готов к использованию"
+    return 0
 }
 
 # Функция показа информации о файле

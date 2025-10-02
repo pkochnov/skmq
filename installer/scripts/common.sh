@@ -10,6 +10,7 @@
 # Загрузка конфигурации
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+LOG_TIMESTAMP_FORMAT="${LOG_TIMESTAMP_FORMAT:-"+%Y-%m-%d %H:%M:%S"}"
 
 # Определение пути к конфигурационным файлам
 # Если мы в временной директории (/tmp/monq-*), используем локальные файлы
