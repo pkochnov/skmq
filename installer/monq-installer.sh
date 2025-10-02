@@ -673,7 +673,7 @@ execute_action() {
             ;;
         uninstall-k8s-worker)
             script_path="$PROJECT_DIR/scripts/uninstall-k8s-worker.sh"
-            script_args=()
+            script_args=("--interactive")
             ;;
         init-k8s-worker-storage)
             script_path="$PROJECT_DIR/scripts/init-k8s-worker-storage.sh"

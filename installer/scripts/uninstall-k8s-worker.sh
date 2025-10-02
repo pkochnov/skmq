@@ -21,6 +21,7 @@ FORCE=false
 PAUSE_AFTER_STEP=false
 CLEANUP_STORAGE=false
 CLEANUP_CONFIG=false
+INTERACTIVE=false
 
 # =============================================================================
 # Функции скрипта
@@ -46,12 +47,14 @@ show_help() {
     --pause                 Пауза после каждого этапа удаления
     --cleanup-storage       Удалить данные хранилища (монтирование, файловые системы)
     --cleanup-config        Удалить конфигурационные файлы
+    --interactive           Принудительный интерактивный режим
     --help                  Показать эту справку
 
 Примеры:
     $0                      Удаление узла с подтверждением
     $0 --dry-run            Симуляция удаления узла
     $0 --force              Принудительное удаление без подтверждений
+    $0 --interactive        Принудительный интерактивный режим (даже через SSH)
     $0 --cleanup-storage    Удаление с очисткой хранилища
     $0 --cleanup-config     Удаление с очисткой конфигурации
 
@@ -82,6 +85,10 @@ parse_arguments() {
                 ;;
             --cleanup-config)
                 CLEANUP_CONFIG=true
+                shift
+                ;;
+            --interactive)
+                INTERACTIVE=true
                 shift
                 ;;
             --help)
@@ -117,14 +124,33 @@ confirm_uninstall() {
     fi
     
     echo
-    read -p "Вы уверены, что хотите продолжить? (yes/no): " -r
-    echo
     
-    if [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
-        return 0
+    # Проверяем, запущен ли скрипт в интерактивном режиме
+    if [[ "$INTERACTIVE" == "true" ]] || [[ -t 0 ]]; then
+        # Интерактивный режим - показываем запрос
+        read -p "Вы уверены, что хотите продолжить? (yes/no): " -r
+        echo
+        
+        if [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+            return 0
+        else
+            print_info "Операция отменена"
+            exit 0
+        fi
     else
-        print_info "Операция отменена"
-        exit 0
+        # Неинтерактивный режим - показываем обратный отсчет
+        print_warning "Неинтерактивный режим - автоматическое подтверждение через 10 секунд"
+        print_warning "Нажмите Ctrl+C для отмены"
+        echo
+        
+        for i in {10..1}; do
+            printf "\r\033[KПодтверждение через %d секунд... (Ctrl+C для отмены)" "$i"
+            sleep 1
+        done
+        echo
+        echo
+        print_info "Подтверждение получено автоматически"
+        return 0
     fi
 }
 
@@ -228,6 +254,42 @@ cleanup_kubernetes_config() {
         print_success "Конфигурация kubectl удалена"
     else
         print_warning "Не удалось удалить конфигурацию kubectl"
+    fi
+    
+    # Удаление конфигурации Kubernetes
+    print_info "Удаление конфигурации Kubernetes..."
+    if run_sudo rm -rf /etc/kubernetes; then
+        print_success "Конфигурация Kubernetes удалена"
+    else
+        print_warning "Не удалось удалить конфигурацию Kubernetes"
+    fi
+    
+    # Удаление логов Kubernetes
+    print_info "Удаление логов Kubernetes..."
+    if run_sudo rm -rf /var/log/pods; then
+        print_success "Логи подов удалены"
+    else
+        log_debug "Логи подов не найдены"
+    fi
+    
+    if run_sudo rm -rf /var/log/containers; then
+        print_success "Логи контейнеров удалены"
+    else
+        log_debug "Логи контейнеров не найдены"
+    fi
+    
+    # Удаление временных файлов и кэша
+    print_info "Удаление временных файлов и кэша..."
+    if run_sudo rm -rf /tmp/kube*; then
+        print_success "Временные файлы Kubernetes удалены"
+    else
+        log_debug "Временные файлы Kubernetes не найдены"
+    fi
+    
+    if run_sudo rm -rf /var/cache/kube*; then
+        print_success "Кэш Kubernetes удален"
+    else
+        log_debug "Кэш Kubernetes не найден"
     fi
     
     return 0
@@ -365,13 +427,23 @@ remove_containerd() {
         return 0
     fi
     
-    # Удаление systemd unit файла
-    print_info "Удаление systemd unit файла containerd..."
-    if run_sudo rm -f /etc/systemd/system/containerd.service; then
-        print_success "Systemd unit файл containerd удален"
-    else
-        print_warning "Не удалось удалить systemd unit файл containerd"
-    fi
+    # Удаление systemd unit файлов
+    print_info "Удаление systemd unit файлов..."
+    local systemd_units=(
+        "/etc/systemd/system/containerd.service"
+        "/etc/systemd/system/kubelet.service"
+        "/etc/systemd/system/kubelet.service.d"
+    )
+    
+    for unit in "${systemd_units[@]}"; do
+        if run_sudo rm -rf "$unit"; then
+            log_debug "Systemd unit удален: $unit"
+        else
+            log_debug "Systemd unit не найден: $unit"
+        fi
+    done
+    
+    print_success "Systemd unit файлы удалены"
     
     # Перезагрузка systemd
     if run_sudo systemctl daemon-reload; then
@@ -482,6 +554,14 @@ cleanup_config_files() {
         print_success "Конфигурация модулей удалена"
     else
         log_debug "Конфигурация модулей не найдена"
+    fi
+    
+    # Очистка переменных окружения из .bashrc
+    print_info "Очистка переменных окружения из .bashrc..."
+    if run_sudo sed -i '/KUBECONFIG\|KUBERNETES/d' /root/.bashrc; then
+        print_success "Переменные окружения Kubernetes удалены из .bashrc"
+    else
+        log_debug "Переменные окружения Kubernetes не найдены в .bashrc"
     fi
     
     return 0
