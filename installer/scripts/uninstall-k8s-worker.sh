@@ -58,7 +58,7 @@ show_help() {
     $0 --cleanup-storage    Удаление с очисткой хранилища
     $0 --cleanup-config     Удаление с очисткой конфигурации
 
-ВНИМАНИЕ: Этот скрипт удалит узел из кластера Kubernetes!
+ВНИМАНИЕ: Этот скрипт выполнит принудительную очистку всех компонентов Kubernetes!
 
 EOF
 }
@@ -111,8 +111,8 @@ confirm_uninstall() {
     fi
     
     echo
-    print_warning "ВНИМАНИЕ: Этот скрипт удалит узел из кластера Kubernetes!"
-    print_warning "Узел будет отключен от кластера и все локальные данные будут потеряны!"
+    print_warning "ВНИМАНИЕ: Этот скрипт выполнит принудительную очистку всех компонентов Kubernetes!"
+    print_warning "Все данные Kubernetes будут безвозвратно удалены независимо от состояния кластера!"
     echo
     
     if [[ "$CLEANUP_STORAGE" == "true" ]]; then
@@ -154,25 +154,6 @@ confirm_uninstall() {
     fi
 }
 
-# Проверка, что узел является частью кластера
-check_cluster_membership() {
-    print_section "Проверка принадлежности к кластеру"
-    
-    if [[ "$DRY_RUN" == "true" ]]; then
-        print_info "[DRY-RUN] Проверка принадлежности к кластеру"
-        return 0
-    fi
-    
-    # Проверяем, запущен ли kubelet
-    if systemctl is-active kubelet &>/dev/null; then
-        print_info "Kubelet активен - узел является частью кластера"
-        return 0
-    else
-        print_warning "Kubelet неактивен - узел может не быть частью кластера"
-        return 1
-    fi
-}
-
 # Остановка и отключение сервисов
 stop_services() {
     print_section "Остановка и отключение сервисов"
@@ -182,34 +163,51 @@ stop_services() {
         return 0
     fi
     
-    # Остановка kubelet
-    print_info "Остановка kubelet..."
-    if run_sudo systemctl stop kubelet; then
-        print_success "Kubelet остановлен"
-    else
-        print_warning "Не удалось остановить kubelet"
+    # Принудительная остановка всех Kubernetes сервисов
+    local services=("kubelet" "containerd")
+    
+    for service in "${services[@]}"; do
+        print_info "Обработка сервиса: $service"
+        
+        # Проверяем, существует ли сервис
+        if run_sudo systemctl list-unit-files | grep -q "$service.service"; then
+            # Остановка сервиса (игнорируем ошибки)
+            if run_sudo systemctl stop "$service" 2>/dev/null; then
+                print_success "$service остановлен"
+            else
+                print_warning "$service уже остановлен или не может быть остановлен"
+            fi
+            
+            # Отключение автозапуска (игнорируем ошибки)
+            if run_sudo systemctl disable "$service" 2>/dev/null; then
+                print_success "Автозапуск $service отключен"
+            else
+                print_warning "Не удалось отключить автозапуск $service"
+            fi
+        else
+            print_info "$service не найден в systemd"
+        fi
+    done
+    
+    # Принудительное завершение процессов (если они все еще запущены)
+    print_info "Принудительное завершение процессов Kubernetes..."
+    
+    # Завершение kubelet процессов
+    if pgrep -f kubelet >/dev/null 2>&1; then
+        print_info "Завершение процессов kubelet..."
+        run_sudo pkill -f kubelet 2>/dev/null || true
+        sleep 2
+        # Принудительное завершение, если процессы все еще запущены
+        run_sudo pkill -9 -f kubelet 2>/dev/null || true
     fi
     
-    # Отключение автозапуска kubelet
-    if run_sudo systemctl disable kubelet; then
-        print_success "Автозапуск kubelet отключен"
-    else
-        print_warning "Не удалось отключить автозапуск kubelet"
-    fi
-    
-    # Остановка containerd
-    print_info "Остановка containerd..."
-    if run_sudo systemctl stop containerd; then
-        print_success "Containerd остановлен"
-    else
-        print_warning "Не удалось остановить containerd"
-    fi
-    
-    # Отключение автозапуска containerd
-    if run_sudo systemctl disable containerd; then
-        print_success "Автозапуск containerd отключен"
-    else
-        print_warning "Не удалось отключить автозапуск containerd"
+    # Завершение containerd процессов
+    if pgrep -f containerd >/dev/null 2>&1; then
+        print_info "Завершение процессов containerd..."
+        run_sudo pkill -f containerd 2>/dev/null || true
+        sleep 2
+        # Принудительное завершение, если процессы все еще запущены
+        run_sudo pkill -9 -f containerd 2>/dev/null || true
     fi
     
     return 0
@@ -217,119 +215,115 @@ stop_services() {
 
 # Очистка конфигурации Kubernetes
 cleanup_kubernetes_config() {
-    print_section "Очистка конфигурации Kubernetes"
+    print_section "Принудительная очистка конфигурации Kubernetes"
     
     if [[ "$DRY_RUN" == "true" ]]; then
-        print_info "[DRY-RUN] Очистка конфигурации Kubernetes"
+        print_info "[DRY-RUN] Принудительная очистка конфигурации Kubernetes"
         return 0
     fi
     
-    # Удаление конфигурации kubelet
-    print_info "Удаление конфигурации kubelet..."
-    if run_sudo rm -rf /var/lib/kubelet; then
-        print_success "Конфигурация kubelet удалена"
-    else
-        print_warning "Не удалось удалить конфигурацию kubelet"
-    fi
+    # Список всех директорий и файлов для принудительного удаления
+    local cleanup_paths=(
+        "/etc/cni/net.d"
+        "/root/.kube"
+        "/etc/kubernetes"
+        "/var/log/pods"
+        "/var/log/containers"
+        "/tmp/kube*"
+        "/var/cache/kube*"
+        "/var/lib/etcd"
+        "/var/lib/calico"
+        "/var/lib/flannel"
+        "/var/lib/cni"
+        "/opt/cni"
+        "/opt/containerd"
+        "/opt/kubernetes"
+    )
     
-    # Удаление конфигурации containerd
-    print_info "Удаление конфигурации containerd..."
-    if run_sudo rm -rf /var/lib/containerd; then
-        print_success "Конфигурация containerd удалена"
-    else
-        print_warning "Не удалось удалить конфигурацию containerd"
-    fi
+    print_info "Принудительное удаление всех файлов и директорий Kubernetes..."
     
-    # Удаление конфигурации CNI
-    print_info "Удаление конфигурации CNI..."
-    if run_sudo rm -rf /etc/cni/net.d; then
-        print_success "Конфигурация CNI удалена"
-    else
-        print_warning "Не удалось удалить конфигурацию CNI"
-    fi
+    for path in "${cleanup_paths[@]}"; do
+        if [[ "$path" == *"*" ]]; then
+            # Обработка wildcard путей
+            print_info "Удаление файлов по шаблону: $path"
+            run_sudo rm -rf $path 2>/dev/null || true
+        else
+            # Обработка конкретных путей
+            if [[ -e "$path" ]]; then
+                print_info "Удаление: $path"
+                if run_sudo rm -rf "$path" 2>/dev/null; then
+                    print_success "Удалено: $path"
+                else
+                    print_warning "Не удалось удалить: $path (возможно, используется)"
+                fi
+            else
+                log_debug "Не найдено: $path"
+            fi
+        fi
+    done
     
-    # Удаление конфигурации kubectl
-    print_info "Удаление конфигурации kubectl..."
-    if run_sudo rm -rf /root/.kube; then
-        print_success "Конфигурация kubectl удалена"
-    else
-        print_warning "Не удалось удалить конфигурацию kubectl"
-    fi
+    # Дополнительная очистка процессов и файлов
+    print_info "Дополнительная очистка процессов и файлов..."
     
-    # Удаление конфигурации Kubernetes
-    print_info "Удаление конфигурации Kubernetes..."
-    if run_sudo rm -rf /etc/kubernetes; then
-        print_success "Конфигурация Kubernetes удалена"
-    else
-        print_warning "Не удалось удалить конфигурацию Kubernetes"
-    fi
-    
-    # Удаление логов Kubernetes
-    print_info "Удаление логов Kubernetes..."
-    if run_sudo rm -rf /var/log/pods; then
-        print_success "Логи подов удалены"
-    else
-        log_debug "Логи подов не найдены"
-    fi
-    
-    if run_sudo rm -rf /var/log/containers; then
-        print_success "Логи контейнеров удалены"
-    else
-        log_debug "Логи контейнеров не найдены"
-    fi
-    
-    # Удаление временных файлов и кэша
-    print_info "Удаление временных файлов и кэша..."
-    if run_sudo rm -rf /tmp/kube*; then
-        print_success "Временные файлы Kubernetes удалены"
-    else
-        log_debug "Временные файлы Kubernetes не найдены"
-    fi
-    
-    if run_sudo rm -rf /var/cache/kube*; then
-        print_success "Кэш Kubernetes удален"
-    else
-        log_debug "Кэш Kubernetes не найден"
-    fi
+    # Завершение всех процессов, связанных с Kubernetes
+    local k8s_processes=("kubelet" "containerd" "crictl" "ctr" "kube-proxy" "calico" "flannel")
+    for process in "${k8s_processes[@]}"; do
+        if pgrep -f "$process" >/dev/null 2>&1; then
+            print_info "Завершение процессов: $process"
+            run_sudo pkill -9 -f "$process" 2>/dev/null || true
+        fi
+    done
     
     return 0
 }
 
 # Очистка сетевых интерфейсов
 cleanup_network() {
-    print_section "Очистка сетевых интерфейсов"
+    print_section "Принудительная очистка сетевых интерфейсов"
     
     if [[ "$DRY_RUN" == "true" ]]; then
-        print_info "[DRY-RUN] Очистка сетевых интерфейсов"
+        print_info "[DRY-RUN] Принудительная очистка сетевых интерфейсов"
         return 0
     fi
     
-    # Удаление интерфейсов CNI
-    print_info "Удаление интерфейсов CNI..."
+    # Принудительное удаление всех CNI интерфейсов
+    print_info "Принудительное удаление всех CNI интерфейсов..."
     
-    # Удаление интерфейсов Calico
-    for interface in $(ip link show | grep -E "cali|flannel" | cut -d: -f2 | tr -d ' '); do
-        if run_sudo ip link delete "$interface" 2>/dev/null; then
-            print_success "Интерфейс $interface удален"
-        else
-            log_debug "Интерфейс $interface не найден или уже удален"
-        fi
-    done
+    # Получаем список всех интерфейсов, связанных с Kubernetes
+    local interfaces=$(ip link show | grep -E "cali|flannel|veth|br-|cni|kube" | cut -d: -f2 | tr -d ' ')
     
-    # Очистка iptables правил
-    print_info "Очистка iptables правил..."
-    if run_sudo iptables -F; then
-        print_success "Правила iptables очищены"
+    if [[ -n "$interfaces" ]]; then
+        for interface in $interfaces; do
+            print_info "Удаление интерфейса: $interface"
+            # Принудительное удаление интерфейса
+            run_sudo ip link delete "$interface" 2>/dev/null || true
+            # Дополнительная попытка через ifconfig (если доступен)
+            run_sudo ifconfig "$interface" down 2>/dev/null || true
+        done
     else
-        print_warning "Не удалось очистить правила iptables"
+        print_info "CNI интерфейсы не найдены"
     fi
+    
+    # Принудительная очистка iptables правил
+    print_info "Принудительная очистка iptables правил..."
+    
+    # Очистка всех цепочек iptables
+    run_sudo iptables -F 2>/dev/null || true
+    run_sudo iptables -X 2>/dev/null || true
+    run_sudo iptables -t nat -F 2>/dev/null || true
+    run_sudo iptables -t nat -X 2>/dev/null || true
+    run_sudo iptables -t mangle -F 2>/dev/null || true
+    run_sudo iptables -t mangle -X 2>/dev/null || true
+    run_sudo iptables -t raw -F 2>/dev/null || true
+    run_sudo iptables -t raw -X 2>/dev/null || true
     
     # Очистка ip6tables правил
-    if run_sudo ip6tables -F; then
-        print_success "Правила ip6tables очищены"
-    else
-        print_warning "Не удалось очистить правила ip6tables"
-    fi
+    run_sudo ip6tables -F 2>/dev/null || true
+    run_sudo ip6tables -X 2>/dev/null || true
+    run_sudo ip6tables -t mangle -F 2>/dev/null || true
+    run_sudo ip6tables -t mangle -X 2>/dev/null || true
+    
+    print_success "Сетевые интерфейсы и правила очищены"
     
     return 0
 }
@@ -677,7 +671,6 @@ main() {
     
     # Выполнение этапов удаления
     local steps=(
-        "check_cluster_membership"
         "stop_services"
         "cleanup_kubernetes_config"
         "cleanup_network"
