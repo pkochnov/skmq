@@ -313,27 +313,45 @@ get_kubeconfig_from_master() {
     local master_ip="$1"
     local kubeconfig_source="/etc/kubernetes/admin.conf"
     local local_kubeconfig="/tmp/kubeconfig-master-$(date +%s)"
+    local remote_temp_file="/tmp/kubeconfig-$(date +%s)"
     
     print_info "Получение kubeconfig файла с master узла $master_ip..."
     
-    # Получаем содержимое kubeconfig файла с master узла через sudo
-    if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$MONQ_USER@$master_ip" "sudo cat $kubeconfig_source" > "$local_kubeconfig" 2>/dev/null; then
-        if [[ -s "$local_kubeconfig" ]]; then
-            print_success "Kubeconfig файл получен с master узла: $local_kubeconfig"
-            echo "$local_kubeconfig"
-            return 0
+    # Шаг 1: Создаем временный файл на master узле через sudo cat
+    print_info "Создание временного файла на master узле..."
+    if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$MONQ_USER@$master_ip" "sudo cat $kubeconfig_source > $remote_temp_file"; then
+        print_success "Временный файл создан на master узле: $remote_temp_file"
+        
+        # Шаг 2: Скачиваем временный файл с master узла на локальную машину
+        print_info "Скачивание файла с master узла..."
+        if scp -o StrictHostKeyChecking=no "$MONQ_USER@$master_ip:$remote_temp_file" "$local_kubeconfig"; then
+            if [[ -s "$local_kubeconfig" ]]; then
+                print_success "Kubeconfig файл скачан с master узла: $local_kubeconfig"
+                
+                # Очищаем временный файл на master узле
+                ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$MONQ_USER@$master_ip" "rm -f $remote_temp_file" 2>/dev/null
+                
+                echo "$local_kubeconfig"
+                return 0
+            else
+                print_error "Скачан пустой kubeconfig файл с master узла"
+                rm -f "$local_kubeconfig"
+                # Очищаем временный файл на master узле
+                ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$MONQ_USER@$master_ip" "rm -f $remote_temp_file" 2>/dev/null
+                return 1
+            fi
         else
-            print_error "Получен пустой kubeconfig файл с master узла"
-            rm -f "$local_kubeconfig"
+            print_error "Не удалось скачать kubeconfig файл с master узла"
+            # Очищаем временный файл на master узле
+            ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$MONQ_USER@$master_ip" "rm -f $remote_temp_file" 2>/dev/null
             return 1
         fi
     else
-        print_error "Не удалось получить kubeconfig файл с master узла"
+        print_error "Не удалось создать временный файл на master узле"
         print_info "Убедитесь, что:"
         print_info "  1. Пользователь $MONQ_USER имеет sudo права на master узле"
         print_info "  2. Файл $kubeconfig_source существует на master узле"
         print_info "  3. SSH доступен к master узлу"
-        rm -f "$local_kubeconfig"
         return 1
     fi
 }
