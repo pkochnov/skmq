@@ -16,7 +16,7 @@ source "$SCRIPT_DIR/common.sh"
 # =============================================================================
 
 # Параметры по умолчанию
-STORAGE_DEVICE=""
+STORAGE_DEVICE="${K8S_STORAGE:-}"
 MOUNT_POINT="/mnt/k8s-storage"
 DRY_RUN=false
 FORCE=false

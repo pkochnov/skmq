@@ -179,7 +179,7 @@ parse_arguments() {
                 shift 2
                 ;;
             --device)
-                K8S_WORKER_STORAGE="$2"
+                K8S_STORAGE="$2"
                 shift 2
                 ;;
             --mount)
@@ -671,9 +671,9 @@ execute_action() {
             script_args=()
             
             # Проверяем, указано ли устройство хранилища
-            if [[ -n "$K8S_WORKER_STORAGE" ]]; then
-                script_args+=("--device" "$K8S_WORKER_STORAGE")
-                print_info "Используется устройство хранилища: $K8S_WORKER_STORAGE"
+            if [[ -n "$K8S_STORAGE" ]]; then
+                script_args+=("--device" "$K8S_STORAGE")
+                print_info "Используется устройство хранилища: $K8S_STORAGE"
             else
                 print_warning "Устройство хранилища не указано"
                 print_info "Скрипт будет запущен без параметров - потребуется ввод устройства"
