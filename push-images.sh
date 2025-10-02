@@ -16,5 +16,5 @@ discli --insecure push ${DIR}/images/kube-scheduler-v1.31.13.tar registry:5000/k
 discli --insecure push ${DIR}/images/pause-3.8.tar registry:5000/pause:3.8
 
 # Cilium
-discli --insecure push ${DIR}/images/cilium-v1.16.5.tar registry:5000/quay.io/cilium/cilium:v1.16.5
-discli --insecure push ${DIR}/images/cilium-operator-generic-v1.16.5.tar registry:5000/quay.io/cilium/operator-generic:v1.16.5
+discli --insecure push ${DIR}/images/cilium-v1.16.5.tar registry:5000/cilium/cilium/cilium:v1.16.5
+discli --insecure push ${DIR}/images/cilium-operator-generic-v1.16.5.tar registry:5000/cilium/cilium/operator-generic:v1.16.5
