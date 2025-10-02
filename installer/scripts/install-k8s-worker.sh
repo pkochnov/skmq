@@ -975,9 +975,26 @@ pull_k8s_images() {
     
     if run_sudo $pull_cmd; then
         print_success "Образы Kubernetes загружены с локального реестра"
-    else
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-apiserver:${K8S_VERSION}" "registry.k8s.io/kube-apiserver:${K8S_VERSION}"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-controller-manager:${K8S_VERSION}" "registry.k8s.io/kube-controller-manager:${K8S_VERSION}"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-scheduler:${K8S_VERSION}" "registry.k8s.io/kube-scheduler:${K8S_VERSION}"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-proxy:${K8S_VERSION}" "registry.k8s.io/kube-proxy:${K8S_VERSION}"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/etcd:3.5.15-0" "registry.k8s.io/etcd:3.5.15-0"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/pause:3.10" "registry.k8s.io/pause:3.10"
+   else
         print_warning "Не удалось загрузить образы с локального реестра, будет использован стандартный репозиторий"
         log_warn "Возможно, локальный реестр недоступен или образы не загружены в него"
+    fi
+    
+    # Дополнительная загрузка образа pause:3.8
+    print_info "Загрузка образа pause:3.8 с локального реестра..."
+    if run_sudo crictl pull registry:5000/pause:3.8; then
+        # Тегируем образ pause:3.8 для совместимости с Kubernetes
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/pause:3.8" "registry.k8s.io/pause:3.8"
+        print_success "Образ pause:3.8 загружен с локального реестра"
+    else
+        print_warning "Не удалось загрузить образ pause:3.8 с локального реестра"
+        log_warn "Возможно, образ pause:3.8 не загружен в локальный реестр"
     fi
     
     return 0

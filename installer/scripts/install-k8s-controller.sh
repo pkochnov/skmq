@@ -27,6 +27,7 @@ K8S_TOKEN_TTL="${K8S_TOKEN_TTL:-24h0m0s}"
 DRY_RUN=false
 FORCE=false
 PAUSE_AFTER_STEP=false
+ONLINE=false
 
 # =============================================================================
 # Функции скрипта
@@ -58,12 +59,14 @@ show_help() {
     --dry-run                 Режим симуляции (без выполнения команд)
     --force                   Принудительное выполнение (без подтверждений)
     --pause                   Пауза после каждого этапа установки
+    --online                  Онлайн режим (использование интернет-ресурсов)
     --help                    Показать эту справку
 
 Примеры:
     $0 --k8s-version 1.31.4 --cni cilium
     $0 --pod-network-cidr 10.244.0.0/16 --service-cidr 10.96.0.0/12 --dry-run
-    $0 --cilium-version 1.16.5 --cni cilium
+    $0 --cilium-version 1.16.5 --cni cilium --online
+    $0 --k8s-version 1.31.4 --cni cilium --online --pause
 
 EOF
 }
@@ -114,6 +117,10 @@ parse_arguments() {
                 ;;
             --pause)
                 PAUSE_AFTER_STEP=true
+                shift
+                ;;
+            --online)
+                ONLINE=true
                 shift
                 ;;
             --help)
@@ -605,8 +612,11 @@ install_helm() {
     
     # Версия Helm из документации MONQ
     local arch="amd64"
-    # local helm_url="https://get.helm.sh/helm-${HELM_VERSION}-linux-${arch}.tar.gz"
-    local helm_url="https://github.com/pkochnov/skmq/raw/refs/heads/master/packages/helm-${HELM_VERSION}-linux-${arch}.tar.gz"
+    if [[ "$ONLINE" == "true" ]]; then
+        helm_url="https://get.helm.sh/helm-${HELM_VERSION}-linux-${arch}.tar.gz"
+    else
+        helm_url="https://github.com/pkochnov/skmq/raw/refs/heads/master/packages/helm-${HELM_VERSION}-linux-${arch}.tar.gz"
+    fi
     local helm_tmp="/tmp/helm-${helm_version}-linux-${arch}.tar.gz"
     
     # Скачиваем Helm
@@ -1128,9 +1138,26 @@ pull_k8s_images() {
     
     if run_sudo $pull_cmd; then
         print_success "Образы Kubernetes загружены с локального реестра"
-    else
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-apiserver:${K8S_VERSION}" "registry.k8s.io/kube-apiserver:${K8S_VERSION}"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-controller-manager:${K8S_VERSION}" "registry.k8s.io/kube-controller-manager:${K8S_VERSION}"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-scheduler:${K8S_VERSION}" "registry.k8s.io/kube-scheduler:${K8S_VERSION}"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/kube-proxy:${K8S_VERSION}" "registry.k8s.io/kube-proxy:${K8S_VERSION}"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/etcd:3.5.15-0" "registry.k8s.io/etcd:3.5.15-0"
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/pause:3.10" "registry.k8s.io/pause:3.10"
+   else
         print_warning "Не удалось загрузить образы с локального реестра, будет использован стандартный репозиторий"
         log_warn "Возможно, локальный реестр недоступен или образы не загружены в него"
+    fi
+    
+    # Дополнительная загрузка образа pause:3.8
+    print_info "Загрузка образа pause:3.8 с локального реестра..."
+    if run_sudo crictl pull registry:5000/pause:3.8; then
+        # Тегируем образ pause:3.8 для совместимости с Kubernetes
+        run_sudo /usr/local/bin/ctr -n k8s.io images tag "registry:5000/pause:3.8" "registry.k8s.io/pause:3.8"
+        print_success "Образ pause:3.8 загружен с локального реестра"
+    else
+        print_warning "Не удалось загрузить образ pause:3.8 с локального реестра"
+        log_warn "Возможно, образ pause:3.8 не загружен в локальный реестр"
     fi
     
     return 0
@@ -1157,6 +1184,8 @@ initialize_cluster() {
     # Команда инициализации кластера
     local init_cmd="kubeadm init \
         --v=2 \
+        --skip-phases="addon/kube-proxy" \
+        --kubernetes-version $K8S_VERSION \
         --pod-network-cidr=$POD_NETWORK_CIDR \
         --service-cidr=$SERVICE_CIDR \
         --apiserver-advertise-address=$host_ip \
@@ -1251,7 +1280,7 @@ install_cni_plugin() {
 
 # Установка Cilium
 install_cilium() {
-    print_info "Установка Cilium CNI версии 1.16.5..."
+    print_info "Установка Cilium CNI версии $CILIUM_VERSION..."
     
     # Установка Cilium CLI
     local cilium_cli_url="https://github.com/cilium/cilium-cli/releases/latest/download/cilium-linux-amd64.tar.gz"
@@ -1274,22 +1303,42 @@ install_cilium() {
         return 1
     fi
     
-    # Установка Cilium с помощью Helm
-    print_info "Установка Cilium через Helm..."
-    
-    # Добавление репозитория Cilium
-    if run_sudo /usr/local/bin/helm repo add cilium https://helm.cilium.io/; then
-        log_debug "Репозиторий Cilium добавлен"
+    if [[ "$ONLINE" == "true" ]]; then
+        # Добавление репозитория Cilium
+        if run_sudo /usr/local/bin/helm repo add cilium https://helm.cilium.io/; then
+            log_debug "Репозиторий Cilium добавлен"
+        else
+            print_error "Ошибка при добавлении репозитория Cilium"
+            return 1
+        fi
+        
+        # Обновление репозиториев
+        if run_sudo /usr/local/bin/helm repo update; then
+            log_debug "Репозитории Helm обновлены"
+        else
+            print_warning "Не удалось обновить репозитории Helm"
+        fi
+
+        cilium_chart="cilium/cilium"
     else
-        print_error "Ошибка при добавлении репозитория Cilium"
-        return 1
-    fi
-    
-    # Обновление репозиториев
-    if run_sudo /usr/local/bin/helm repo update; then
-        log_debug "Репозитории Helm обновлены"
-    else
-        print_warning "Не удалось обновить репозитории Helm"
+        # Установка Cilium с помощью Helm
+        print_info "Offline утановка Cilium через Helm..."
+        mkdir -p ~/helm/cilium
+        local cilium_chart_url="https://github.com/pkochnov/skmq/raw/refs/heads/master/charts/cilium-${CILIUM_VERSION}.tgz"
+        cilium_chart="~/helm/cilium/cilium-${CILIUM_VERSION}.tgz"
+
+        # Проверяем, скачан ли уже chart
+        if [[ -f "$cilium_chart" ]]; then
+            print_info "Cilium chart уже скачан: $cilium_chart"
+        else
+            print_info "Скачиваем Cilium chart: $cilium_chart_url"
+            if wget -q "$cilium_chart_url" -O "$cilium_chart"; then
+                print_success "Cilium chart скачан"
+            else
+                print_error "Ошибка при скачивании Cilium chart"
+                return 1
+            fi
+        fi
     fi
     
     # Используем IP адрес контроллера из hosts.conf
@@ -1299,93 +1348,27 @@ install_cilium() {
         return 1
     fi
     
-    # Установка Cilium с настройками
-    local cilium_values="
-cluster:
-  name: $K8S_CLUSTER_NAME
-  id: 1
-ipam:
-  mode: kubernetes
-k8s:
-  requireIPv4PodCIDR: true
-  requireIPv6PodCIDR: false
-ipv4:
-  enabled: true
-ipv6:
-  enabled: false
-kubeProxyReplacement: false
-k8sServiceHost: $host_ip
-k8sServicePort: 6443
-# Дополнительные настройки для совместимости
-cni:
-  chainingMode: none
-  customConf: false
-  excludeMaster: false
-  logFormat: json
-  logSeverity: info
-  uninstall: false
-debug:
-  enabled: false
-  verbose: cilium
-  verboseFlow: false
-  verbosePolicy: false
-hubble:
-  enabled: true
-  metrics:
-    enabled:
-      - dns
-      - drop
-      - tcp
-      - flow
-      - port-distribution
-      - icmp
-      - http
-  relay:
-    enabled: true
-  ui:
-    enabled: true
-    ingress:
-      enabled: false
-operator:
-  enabled: true
-  replicas: 1
-  unmanagedPodWatcher:
-    restart: false
-"
-    
-    # Создание временного файла с настройками
-    local cilium_config="/tmp/cilium-values.yaml"
-    echo "$cilium_values" > "$cilium_config"
-    
     # Установка Cilium
-    if run_sudo /usr/local/bin/helm install cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --values "$cilium_config"; then
+    if run_sudo /usr/local/bin/helm upgrade --install cilium cilium/cilium \
+        --version "$CILIUM_VERSION" \
+        --namespace kube-system \
+        --set kubeProxyReplacement=true \
+        --set k8sServiceHost=${host_ip} \
+        --set k8sServicePort=${K8S_API_PORT} \
+        --set operator.replicas=1 \
+        --set ipam.mode=kubernetes \
+        --set image.useDigest=false \
+        --set image.repository="registry:5000/cilium/cilium" \
+        --set operator.image.useDigest=false \
+        --set operator.image.repository="registry:5000/cilium/operator" \
+        --set hubble.enabled=false \
+        --set l7Proxy=false \
+        ; then
         print_success "Cilium CNI установлен через Helm"
     else
-        print_warning "Ошибка при установке Cilium через Helm, пробуем альтернативный способ..."
-        
-        # Альтернативный способ установки через манифест
-        local cilium_manifest_url="https://raw.githubusercontent.com/cilium/cilium/v$CILIUM_VERSION/install/kubernetes/quick-install.yaml"
-        local cilium_manifest="/tmp/cilium-manifest.yaml"
-        
-        if curl -s -L "$cilium_manifest_url" -o "$cilium_manifest"; then
-            print_info "Cilium манифест скачан, применяем..."
-            if run_sudo kubectl apply -f "$cilium_manifest"; then
-                print_success "Cilium CNI установлен через манифест"
-                rm -f "$cilium_manifest"
-            else
-                print_error "Ошибка при установке Cilium через манифест"
-                rm -f "$cilium_config" "$cilium_manifest"
-                return 1
-            fi
-        else
-            print_error "Ошибка при скачивании Cilium манифеста"
-            rm -f "$cilium_config"
-            return 1
-        fi
+        print_error "Ошибка при установке Cilium через Helm"
+        return 1
     fi
-    
-    # Очистка временных файлов
-    rm -f "$cilium_config"
     
     # Ожидание готовности Cilium
     print_info "Ожидание готовности Cilium..."
@@ -1668,6 +1651,7 @@ main() {
     log_info "Имя кластера: $K8S_CLUSTER_NAME"
     log_info "Время жизни токена: $K8S_TOKEN_TTL"
     log_info "Режим симуляции: $DRY_RUN"
+    log_info "Онлайн режим: $ONLINE"
     
     # Инициализация sudo сессии
     if ! init_sudo_session; then
@@ -1734,6 +1718,7 @@ main() {
     echo -e "${BLUE}Сеть сервисов:${NC} $SERVICE_CIDR"
     echo -e "${BLUE}CNI плагин:${NC} $CNI_PLUGIN"
     echo -e "${BLUE}Имя кластера:${NC} $K8S_CLUSTER_NAME"
+    echo -e "${BLUE}Онлайн режим:${NC} $ONLINE"
     echo
     echo -e "${YELLOW}Для использования kubectl пользователю $MONQ_USER необходимо перелогиниться${NC}"
     echo -e "${YELLOW}Или выполнить команду: source /home/$MONQ_USER/.kube/config${NC}"
