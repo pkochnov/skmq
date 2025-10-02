@@ -206,7 +206,7 @@ main() {
     # Экспортируем kubeconfig
     local output_file
     if output_file=$(export_kubeconfig); then
-        print_success "Kubeconfig успешно экспортирован"
+        print_success "Kubeconfig успешно экспортирован в $output_file"
     else
         print_error "Не удалось экспортировать kubeconfig"
         exit 1
