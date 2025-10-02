@@ -282,7 +282,7 @@ get_join_token_from_controller() {
     print_info "Получение токена присоединения с контроллерного узла $controller_ip..."
     
     # Получение команды присоединения
-    local join_command=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 monq@$controller_ip "kubeadm token create --print-join-command" 2>/dev/null)
+    local join_command=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $MONQ_USER@$controller_ip "kubeadm token create --print-join-command" 2>/dev/null)
     
     if [[ $? -eq 0 && -n "$join_command" ]]; then
         print_success "Токен присоединения получен"
